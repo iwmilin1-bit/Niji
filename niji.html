@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>にじ Niji</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root{--bg:#0a0a0f;--surface:#12121a;--surface2:#1a1a26;--pink:#ff6b9d;--blue:#4dc9f6;--green:#2ed573;--text:#e0e0e0;--text2:#8888aa;--border:#252535;--danger:#ff4757;--gold:#ffd700}
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+        .header{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+        .logo{font-size:22px;font-weight:700;background:linear-gradient(135deg,var(--pink),var(--blue));-webkit-background-clip:text;-webkit-text-fill-color:transparent;cursor:pointer}
+        .header-right{display:flex;gap:10px;align-items:center}
+        .btn{padding:8px 16px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;border:none;font-family:inherit}
+        .btn-pink{background:var(--pink);color:#fff}
+        .btn-outline{background:transparent;border:1px solid var(--blue);color:var(--blue)}
+        .btn-sm{padding:5px 12px;font-size:11px}
+        .btn-back{background:var(--surface2);color:var(--text);padding:6px 14px;border-radius:20px;font-size:12px;cursor:pointer;border:1px solid var(--border);font-family:inherit}
+        .avatar{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px}
+        .avatar-lg{width:70px;height:70px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:28px;margin:0 auto}
+        .dropdown{position:absolute;top:40px;right:0;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:4px;min-width:150px;display:none;z-index:200}
+        .dropdown.show{display:block}
+        .dropdown button{display:block;width:100%;background:none;border:none;color:var(--text);padding:8px 14px;cursor:pointer;font-size:13px;text-align:left;border-radius:8px;font-family:inherit}
+        .dropdown button:hover{background:var(--surface2)}
+        .dropdown .danger{color:var(--danger)}
+        .user-badge{display:flex;align-items:center;gap:8px;cursor:pointer;position:relative}
+        .notif-bar{background:var(--surface);border-bottom:1px solid var(--border);padding:6px 20px;font-size:11px;display:flex;justify-content:space-between}
+        .container{max-width:650px;margin:16px auto;padding:0 16px}
+        .card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:10px}
+        textarea{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text);font-family:inherit;font-size:13px;resize:vertical;min-height:50px;margin-bottom:8px}
+        textarea:focus{outline:none;border-color:var(--blue)}
+        .row{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+        .tag{background:var(--surface2);border:1px solid var(--border);color:var(--text2);padding:4px 10px;border-radius:12px;font-size:11px;cursor:pointer;font-family:inherit}
+        .tag:hover{border-color:var(--blue);color:var(--blue)}
+        .post-header{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+        .post-name{font-weight:600;font-size:13px;cursor:pointer}
+        .post-name:hover{color:var(--blue)}
+        .post-time{font-size:11px;color:var(--text2)}
+        .post-text{font-size:13px;line-height:1.5;margin:8px 0}
+        .post-tag{display:inline-block;background:var(--surface2);padding:2px 8px;border-radius:8px;font-size:10px;color:var(--blue);margin-bottom:6px}
+        .actions{display:flex;gap:16px;padding-top:8px;border-top:1px solid var(--border)}
+        .act{background:none;border:none;color:var(--text2);cursor:pointer;font-size:12px;font-family:inherit}
+        .act:hover{color:var(--text)}
+        .act.liked{color:var(--pink)}
+        .comments-box{display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
+        .comments-box.open{display:block}
+        .comment{font-size:12px;padding:3px 0}
+        .comment-input{display:flex;gap:6px;margin-top:6px}
+        .comment-input input{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:15px;padding:6px 12px;color:var(--text);font-size:11px;font-family:inherit}
+        .comment-input input:focus{outline:none;border-color:var(--blue)}
+        .tabs{display:flex;background:var(--surface);border-radius:12px;overflow:hidden;border:1px solid var(--border);margin-bottom:14px}
+        .tab{flex:1;background:none;border:none;color:var(--text2);padding:10px;cursor:pointer;font-size:13px;font-family:inherit;text-align:center}
+        .tab.active{background:var(--pink);color:#fff;font-weight:600}
+        .guest-row{display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface);border:1px solid var(--border);border-radius:12px;margin-bottom:6px}
+        .guest-row:hover{border-color:var(--blue)}
+        .guest-name{font-weight:600;font-size:13px;cursor:pointer}
+        .guest-name:hover{color:var(--blue)}
+        .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:999;display:flex;align-items:center;justify-content:center}
+        .modal{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;width:360px;max-width:90vw}
+        .modal h2{font-size:18px;margin-bottom:12px}
+        .modal input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;color:var(--text);margin-bottom:8px;font-family:inherit}
+        .modal input:focus{outline:none;border-color:var(--blue)}
+        .modal .btn-full{width:100%;padding:10px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;border:none;background:var(--pink);color:#fff;margin-bottom:8px}
+        .modal .btn-link{width:100%;background:none;border:none;color:var(--blue);cursor:pointer;font-size:12px;font-family:inherit}
+        .modal .btn-close{float:right;background:none;border:none;color:var(--text2);font-size:18px;cursor:pointer;font-family:inherit}
+        .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--blue);color:#000;padding:10px 22px;border-radius:25px;font-weight:600;font-size:13px;z-index:9999;opacity:0;pointer-events:none;transition:opacity 0.3s}
+        .toast.show{opacity:1}
+        .toast.error{background:var(--danger);color:#fff}
+    </style>
+</head>
+<body>
+
+    <header class="header">
+        <div class="logo" onclick="goHome()">にじ Niji</div>
+        <div class="header-right" id="headerRight"></div>
+    </header>
+
+    <div class="notif-bar">
+        <span id="notifText">☁️ Облачная версия</span>
+        <span id="statsText">📊</span>
+    </div>
+
+    <div class="container" id="mainContainer"></div>
+
+    <div class="modal-overlay" id="authModal" style="display:none;">
+        <div class="modal">
+            <button class="btn-close" onclick="closeAuth()">✕</button>
+            <h2 id="authTitle">Вход</h2>
+            <input type="text" id="authLogin" placeholder="Логин">
+            <input type="password" id="authPassword" placeholder="Пароль">
+            <button class="btn-full" id="authBtn" onclick="handleAuth()">Войти</button>
+            <button class="btn-link" id="switchBtn" onclick="toggleAuth()">Регистрация</button>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        const SB = supabase.createClient(
+            'https://fzgjkkljxbphrcjtqgew.supabase.co',
+            'sb_publishable_Ef2IM3grizwYR1gCkJR6Aw_iDbnFn9Q'
+        );
+
+        let currentUser = null;
+        let isLogin = true;
+        let page = 'feed';
+        let profileLogin = null;
+        let profileTab = 'posts';
+
+        async function init() {
+            const saved = localStorage.getItem('niji_session');
+            if (saved) {
+                const { data } = await SB.from('users').select('*').eq('login', saved).single();
+                if (data) currentUser = data;
+                else localStorage.removeItem('niji_session');
+            }
+            renderHeader();
+            await renderPage();
+            await stats();
+        }
+
+        async function stats() {
+            const { count: u } = await SB.from('users').select('*', { count: 'exact', head: true });
+            const { count: p } = await SB.from('posts').select('*', { count: 'exact', head: true });
+            document.getElementById('statsText').textContent = '👥 ' + (u||0) + ' 📝 ' + (p||0);
+        }
+
+        function renderHeader() {
+            const hr = document.getElementById('headerRight');
+            if (currentUser) {
+                hr.innerHTML = `
+                    <div class="user-badge" onclick="toggleDropdown()">
+                        <span>${esc(currentUser.username)}</span>
+                        <div class="avatar" style="background:${color(currentUser.login)};">${currentUser.username[0].toUpperCase()}</div>
+                        <div class="dropdown" id="userDropdown">
+                            <button onclick="goProfile('${currentUser.login}')">👤 Моя страница</button>
+                            <button onclick="goHome()">📱 Лента</button>
+                            <button onclick="logout()" class="danger">🚪 Выйти</button>
+                        </div>
+                    </div>`;
+            } else {
+                hr.innerHTML = `
+                    <button class="btn btn-outline" onclick="openAuth('login')">Войти</button>
+                    <button class="btn btn-pink" onclick="openAuth('register')">Регистрация</button>`;
+            }
+        }
+
+        async function renderPage() {
+            if (page === 'feed') await renderFeed();
+            else if (page === 'profile') await renderProfile();
+        }
+
+        async function renderFeed() {
+            const mc = document.getElementById('mainContainer');
+            let html = '';
+
+            if (currentUser) {
+                html += `
+                <div class="card">
+                    <textarea id="postInput" placeholder="Что нового? #аниме"></textarea>
+                    <div class="row">
+                        <div>
+                            <button class="tag" onclick="addTag('АтакаТитанов')">⚔️ Атака</button>
+                            <button class="tag" onclick="addTag('МагическаяБитва')">👁️ Магия</button>
+                            <button class="tag" onclick="addTag('ВанПис')">🏴‍☠️ Ван-Пис</button>
+                        </div>
+                        <button class="btn btn-pink btn-sm" onclick="createPost()">Опубликовать</button>
+                    </div>
+                </div>`;
+            }
+
+            const { data: posts, error } = await SB.from('posts').select('*').order('created_at', { ascending: false }).limit(50);
+
+            if (error) {
+                html += '<div class="card" style="text-align:center;color:var(--danger);">❌ Ошибка: ' + error.message + '</div>';
+            } else if (!posts || posts.length === 0) {
+                html += '<div class="card" style="text-align:center;color:var(--text2);">🌸 Пока нет постов</div>';
+            } else {
+                for (const post of posts) {
+                    const { count: likes } = await SB.from('likes').select('*', { count: 'exact', head: true }).eq('post_id', post.id);
+                    const { data: myLike } = await SB.from('likes').select('*').eq('post_id', post.id).eq('user_login', currentUser?.login).single();
+                    const { count: coms } = await SB.from('comments').select('*', { count: 'exact', head: true }).eq('post_id', post.id);
+                    const { data: comments } = await SB.from('comments').select('*').eq('post_id', post.id).order('created_at', { ascending: true });
+                    const time = new Date(post.created_at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+                    html += `
+                    <div class="card" id="post-${post.id}">
+                        <div class="post-header">
+                            <div class="avatar" style="background:${color(post.user_login)};cursor:pointer;" onclick="goProfile('${post.user_login}')">${(post.username||'?')[0].toUpperCase()}</div>
+                            <div style="flex:1;">
+                                <div class="post-name" onclick="goProfile('${post.user_login}')">${esc(post.username)}</div>
+                                <div class="post-time">${time}</div>
+                            </div>
+                        </div>
+                        ${post.tag ? '<span class="post-tag">🎬 ' + esc(post.tag) + '</span>' : ''}
+                        <div class="post-text">${esc(post.content)}</div>
+                        <div class="actions">
+                            <button class="act ${myLike ? 'liked' : ''}" onclick="toggleLike('${post.id}')">❤️ <span id="lc-${post.id}">${likes||0}</span></button>
+                            <button class="act" onclick="toggleComments('${post.id}')">💬 ${coms||0}</button>
+                        </div>
+                        <div class="comments-box" id="comments-${post.id}">
+                            ${comments ? comments.map(c => '<div class="comment"><strong>' + esc(c.username) + '</strong> ' + esc(c.text) + '</div>').join('') : ''}
+                            ${currentUser ? '<div class="comment-input"><input id="ci-' + post.id + '" placeholder="Комментарий..." onkeydown="if(event.key===\'Enter\')addComment(\'' + post.id + '\')"><button class="btn btn-outline btn-sm" onclick="addComment(\'' + post.id + '\')">→</button></div>' : ''}
+                        </div>
+                    </div>`;
+                }
+            }
+
+            mc.innerHTML = html;
+        }
+
+        async function renderProfile() {
+            if (!profileLogin) return goHome();
+            const mc = document.getElementById('mainContainer');
+
+            const { data: user } = await SB.from('users').select('*').eq('login', profileLogin).single();
+            if (!user) { mc.innerHTML = '<div class="card" style="text-align:center;">Пользователь не найден</div>'; return; }
+
+            const { count: posts } = await SB.from('posts').select('*', { count: 'exact', head: true }).eq('user_login', profileLogin);
+            const { count: guests } = await SB.from('guests').select('*', { count: 'exact', head: true }).eq('host_login', profileLogin);
+
+            let html = `
+                <button class="btn-back" onclick="goHome()">← Назад</button>
+                <div class="card" style="text-align:center;margin-top:12px;">
+                    <div class="avatar-lg" style="background:${color(profileLogin)};">${user.username[0].toUpperCase()}</div>
+                    <h2 style="margin-top:10px;">${esc(user.username)}</h2>
+                    <div style="color:var(--text2);">@${esc(profileLogin)}</div>
+                    <div style="font-size:13px;margin-top:6px;">📝 ${posts||0} постов | 👀 ${guests||0} гостей</div>
+                </div>
+                <div class="tabs">
+                    <button class="tab ${profileTab === 'posts' ? 'active' : ''}" onclick="switchTab('posts')">📝 Посты</button>
+                    <button class="tab ${profileTab === 'guests' ? 'active' : ''}" onclick="switchTab('guests')">👀 Гости (${guests||0})</button>
+                </div>
+                <div id="tabContent">Загрузка...</div>
+            `;
+
+            mc.innerHTML = html;
+            await loadTab();
+        }
+
+        async function switchTab(tab) {
+            profileTab = tab;
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelector(`.tab:nth-child(${tab === 'posts' ? '1' : '2'})`)?.classList.add('active');
+            await loadTab();
+        }
+
+        async function loadTab() {
+            const el = document.getElementById('tabContent');
+            if (!el) return;
+
+            if (profileTab === 'posts') {
+                const { data: posts } = await SB.from('posts').select('*').eq('user_login', profileLogin).order('created_at', { ascending: false });
+                if (!posts || posts.length === 0) {
+                    el.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text2);">Пока нет постов</div>';
+                } else {
+                    el.innerHTML = posts.map(p => {
+                        const t = new Date(p.created_at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+                        return '<div class="card"><div class="post-time">' + t + '</div>' + (p.tag ? '<span class="post-tag">🎬 ' + esc(p.tag) + '</span>' : '') + '<div class="post-text">' + esc(p.content) + '</div></div>';
+                    }).join('');
+                }
+            } else {
+                const { data: guests } = await SB.from('guests').select('*').eq('host_login', profileLogin).order('visited_at', { ascending: false }).limit(30);
+                if (!guests || guests.length === 0) {
+                    el.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text2);">👀 Пока никто не заходил</div>';
+                } else {
+                    const unique = {};
+                    guests.forEach(g => { if (!unique[g.guest_login]) unique[g.guest_login] = g; });
+                    const list = Object.values(unique).slice(0, 20);
+                    const logins = list.map(g => g.guest_login);
+                    const { data: users } = await SB.from('users').select('*').in('login', logins);
+
+                    el.innerHTML = list.map(g => {
+                        const u = users?.find(u => u.login === g.guest_login) || { username: g.guest_login };
+                        const t = new Date(g.visited_at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+                        return `
+                        <div class="guest-row">
+                            <div class="avatar" style="background:${color(g.guest_login)};cursor:pointer;" onclick="goProfile('${g.guest_login}')">${u.username[0].toUpperCase()}</div>
+                            <div style="flex:1;">
+                                <div class="guest-name" onclick="goProfile('${g.guest_login}')">${esc(u.username)}</div>
+                                <div style="font-size:11px;color:var(--text2);">Заходил(а) ${t}</div>
+                            </div>
+                        </div>`;
+                    }).join('');
+                }
+            }
+        }
+
+        async function createPost() {
+            if (!currentUser) return toast('Войдите!', true);
+            const input = document.getElementById('postInput');
+            if (!input) return;
+            const text = input.value.trim();
+            if (!text) return toast('Напишите текст!', true);
+
+            const tagMatch = text.match(/#(\S+)/);
+            const tag = tagMatch ? tagMatch[1] : '';
+
+            const { error } = await SB.from('posts').insert([{
+                user_login: currentUser.login,
+                username: currentUser.username,
+                content: text,
+                tag: tag
+            }]);
+
+            if (error) {
+                console.error('Ошибка поста:', error);
+                return toast('❌ ' + error.message, true);
+            }
+
+            input.value = '';
+            document.getElementById('notifText').textContent = '📝 ' + currentUser.username + ' написал(а) пост!';
+            toast('✅ Пост опубликован!');
+            await renderFeed();
+            await stats();
+        }
+
+        function addTag(t) {
+            const input = document.getElementById('postInput');
+            if (input) { input.value += ' #' + t; input.focus(); }
+        }
+
+        async function toggleLike(postId) {
+            if (!currentUser) return toast('Войдите!', true);
+            const { data: exist } = await SB.from('likes').select('*').eq('post_id', postId).eq('user_login', currentUser.login).single();
+
+            if (exist) {
+                await SB.from('likes').delete().eq('id', exist.id);
+            } else {
+                await SB.from('likes').insert([{ post_id: parseInt(postId), user_login: currentUser.login }]);
+            }
+
+            const { count } = await SB.from('likes').select('*', { count: 'exact', head: true }).eq('post_id', postId);
+            const el = document.getElementById('lc-' + postId);
+            if (el) el.textContent = count || 0;
+        }
+
+        function toggleComments(postId) {
+            document.getElementById('comments-' + postId)?.classList.toggle('open');
+        }
+
+        async function addComment(postId) {
+            if (!currentUser) return toast('Войдите!', true);
+            const input = document.getElementById('ci-' + postId);
+            if (!input) return;
+            const text = input.value.trim();
+            if (!text) return;
+
+            await SB.from('comments').insert([{
+                post_id: parseInt(postId),
+                user_login: currentUser.login,
+                username: currentUser.username,
+                text: text
+            }]);
+
+            input.value = '';
+            document.getElementById('notifText').textContent = '💬 ' + currentUser.username + ' прокомментировал(а) пост';
+            await renderFeed();
+            setTimeout(() => document.getElementById('comments-' + postId)?.classList.add('open'), 100);
+        }
+
+        function goHome() { page = 'feed'; profileLogin = null; renderHeader(); renderPage(); }
+
+        async function goProfile(login) {
+            if (!currentUser) return toast('Войдите!', true);
+            if (login !== currentUser.login) {
+                await SB.from('guests').insert([{ host_login: login, guest_login: currentUser.login }]);
+            }
+            profileLogin = login;
+            page = 'profile';
+            profileTab = 'posts';
+            renderHeader();
+            await renderPage();
+        }
+
+        function openAuth(mode) {
+            isLogin = (mode === 'login');
+            document.getElementById('authTitle').textContent = isLogin ? '🚀 Вход' : '🌸 Регистрация';
+            document.getElementById('authBtn').textContent = isLogin ? 'Войти' : 'Зарегистрироваться';
+            document.getElementById('switchBtn').textContent = isLogin ? 'Регистрация' : 'Вход';
+            document.getElementById('authModal').style.display = 'flex';
+            document.getElementById('authLogin').value = '';
+            document.getElementById('authPassword').value = '';
+        }
+
+        function closeAuth() { document.getElementById('authModal').style.display = 'none'; }
+        function toggleAuth() { isLogin = !isLogin; openAuth(isLogin ? 'login' : 'register'); }
+
+        async function handleAuth() {
+            const login = document.getElementById('authLogin').value.trim().toLowerCase();
+            const pass = document.getElementById('authPassword').value;
+            if (!login || !pass) return toast('Заполни поля!', true);
+            if (login.length < 2 || pass.length < 3) return toast('Слишком коротко!', true);
+
+            if (isLogin) {
+                const { data, error } = await SB.from('users').select('*').eq('login', login).eq('password', pass).single();
+                if (error || !data) return toast('Неверный логин или пароль', true);
+                currentUser = data;
+                localStorage.setItem('niji_session', login);
+                closeAuth();
+                goHome();
+                document.getElementById('notifText').textContent = '🟢 ' + data.username + ' вошёл(ла)!';
+                toast('✅ Добро пожаловать!');
+            } else {
+                const { data: exist } = await SB.from('users').select('id').eq('login', login).single();
+                if (exist) return toast('Логин занят', true);
+                const { error } = await SB.from('users').insert([{ login, username: login, password: pass }]);
+                if (error) return toast('Ошибка: ' + error.message, true);
+                toast('✅ Аккаунт создан! Войди.');
+                document.getElementById('notifText').textContent = '🎉 @' + login + ' зарегистрировался!';
+                toggleAuth();
+                await stats();
+            }
+        }
+
+        async function logout() {
+            document.getElementById('notifText').textContent = '🔴 ' + currentUser?.username + ' вышел(ла)';
+            currentUser = null;
+            localStorage.removeItem('niji_session');
+            goHome();
+        }
+
+        function toggleDropdown() {
+            document.getElementById('userDropdown')?.classList.toggle('show');
+        }
+
+        function toast(msg, isErr) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.className = 'toast show' + (isErr ? ' error' : '');
+            setTimeout(() => t.classList.remove('show', 'error'), 2500);
+        }
+
+        function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+        function color(s) {
+            const c = ['#ff6b6b','#4ecdc4','#45b7d1','#f9ca24','#6c5ce7','#a29bfe','#ff9ff3'];
+            let h = 0;
+            for (let i = 0; i < s.length; i++) h = s.charCodeAt(i) + ((h << 5) - h);
+            return c[Math.abs(h) % c.length];
+        }
+
+        document.getElementById('authModal').addEventListener('click', function(e) { if (e.target === this) closeAuth(); });
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.user-badge')) document.getElementById('userDropdown')?.classList.remove('show');
+        });
+
+        init();
+    </script>
+</body>
+</html>
