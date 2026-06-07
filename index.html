@@ -91,6 +91,71 @@
         .toast.show{opacity:1}
         .toast.error{background:var(--danger);color:#fff}
 
+        /* Колокольчик уведомлений */
+        .notif-bell {
+            position: relative;
+            cursor: pointer;
+            width: 34px;
+            height: 34px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            font-size: 16px;
+            transition: all 0.2s ease;
+            flex-shrink: 0;
+        }
+        .notif-bell:hover { background: #2a2a38; border-color: var(--blue); }
+        .notif-badge {
+            position: absolute;
+            top: -4px;
+            right: -4px;
+            background: var(--pink);
+            color: #fff;
+            font-size: 9px;
+            font-weight: 700;
+            min-width: 16px;
+            height: 16px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 3px;
+            border: 2px solid var(--bg);
+            pointer-events: none;
+        }
+        /* Панель уведомлений */
+        .notif-panel {
+            position: absolute;
+            top: 46px;
+            right: 0;
+            width: 320px;
+            max-height: 420px;
+            overflow-y: auto;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            z-index: 300;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+            display: none;
+        }
+        .notif-panel.show { display: block; }
+        .notif-panel::-webkit-scrollbar { width: 4px; }
+        .notif-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+        .notif-item {
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--border);
+            font-size: 13px;
+            line-height: 1.4;
+            transition: background 0.2s;
+        }
+        .notif-item:last-child { border-bottom: none; }
+        .notif-item.unread { background: rgba(255,107,157,0.07); }
+        .notif-item:hover { background: var(--surface2); }
+        .notif-time { font-size: 10px; color: var(--text2); margin-top: 3px; }
+
         /* Стили для картинок в постах */
         .post-image {
             max-width: 100%;
@@ -154,6 +219,66 @@
         .avatar-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
         .avatar-tab { background: var(--surface2); border: 1px solid var(--border); color: var(--text2); padding: 5px 12px; border-radius: 10px; font-size: 12px; cursor: pointer; font-family: inherit; transition: all 0.2s; }
         .avatar-tab.active { background: var(--pink); border-color: var(--pink); color: #fff; }
+
+        /* Обложка профиля */
+        .profile-cover {
+            width: 100%;
+            height: 140px;
+            border-radius: 14px 14px 0 0;
+            object-fit: cover;
+            display: block;
+            background: linear-gradient(135deg, #12121a, #1a1a26);
+            position: relative;
+            overflow: hidden;
+        }
+        .profile-cover-img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 14px 14px 0 0;
+        }
+        .profile-cover-placeholder {
+            width: 100%;
+            height: 140px;
+            border-radius: 14px 14px 0 0;
+            background: linear-gradient(135deg, #0a0a1a, #1a1026, #0d1a2e);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text2);
+            font-size: 13px;
+        }
+        .cover-gallery-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            max-height: 320px;
+            overflow-y: auto;
+            padding-right: 4px;
+            margin: 10px 0;
+        }
+        .cover-gallery-grid::-webkit-scrollbar { width: 4px; }
+        .cover-gallery-grid::-webkit-scrollbar-track { background: var(--surface2); border-radius: 2px; }
+        .cover-gallery-grid::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+        .cover-option {
+            height: 64px;
+            border-radius: 8px;
+            cursor: pointer;
+            border: 3px solid transparent;
+            transition: all 0.2s ease;
+            overflow: hidden;
+            position: relative;
+        }
+        .cover-option:hover { border-color: var(--blue); transform: scale(1.04); }
+        .cover-option.selected { border-color: var(--pink); box-shadow: 0 0 0 2px rgba(255,107,157,0.4); }
+        .cover-option img { width: 100%; height: 100%; object-fit: cover; border-radius: 5px; }
+        .cover-option-label {
+            position: absolute; bottom: 0; left: 0; right: 0;
+            background: rgba(0,0,0,0.55);
+            font-size: 9px; color: #fff;
+            padding: 2px 4px;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
@@ -161,7 +286,7 @@
         <div style="display:flex; align-items:center; gap:12px;">
             <div class="logo" onclick="goHome()">にじ Niji</div>
             <div onclick="showChangelog()" style="background:var(--surface2); color:var(--text2); font-size:11px; padding:2px 9px; border-radius:999px; cursor:pointer; border:1px solid var(--border); user-select:none;">
-                v1.7
+                v1.9
             </div>
         </div>
         <div class="header-right" id="headerRight"></div>
@@ -188,8 +313,8 @@
             <button class="btn-link" onclick="closeAuth()" style="color:var(--text2);">Закрыть</button>
         </div>
     </div>
-    <div class="modal-overlay" id="chatModal" style="display:none;">
-        <div class="modal" id="chatContent"></div>
+    <div class="modal-overlay" id="chatModal" style="display:none; align-items:stretch; justify-content:center; padding:12px;">
+        <div class="modal" id="chatContent" style="width:100%; max-width:680px; max-height:calc(100vh - 24px); height:calc(100vh - 24px); display:flex; flex-direction:column; overflow:hidden; padding:0;"></div>
     </div>
     <div class="toast" id="toast"></div>
     <script>
@@ -284,6 +409,19 @@
             if (currentUser) {
                 const avatarHtml = buildAvatarHtml(currentUser, 34, 14);
                 hr.innerHTML = `
+                    <div style="position:relative;">
+                        <div class="notif-bell" id="bellBtn" onclick="toggleNotifPanel()">
+                            🔔
+                            <span class="notif-badge" id="notifBadge" style="display:none;">0</span>
+                        </div>
+                        <div class="notif-panel" id="notifPanel">
+                            <div style="padding:10px 14px; font-weight:600; font-size:13px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+                                <span>🔔 Уведомления</span>
+                                <span style="font-size:11px; color:var(--blue); cursor:pointer;" onclick="markAllNotifRead()">Прочитать все</span>
+                            </div>
+                            <div id="notifList"><div style="padding:20px; text-align:center; color:var(--text2); font-size:13px;">Загрузка...</div></div>
+                        </div>
+                    </div>
                     <div class="user-badge" onclick="toggleDropdown()">
                         <span>${esc(currentUser.username)}</span>
                         ${avatarHtml}
@@ -294,6 +432,8 @@
                             <button onclick="logout()" style="color:var(--danger);">🚪 Выйти</button>
                         </div>
                     </div>`;
+                // Загружаем уведомления
+                loadNotifications();
             } else {
                 hr.innerHTML = `
                     <button class="btn btn-outline" onclick="openAuth('login')">Войти</button>
@@ -312,8 +452,8 @@
                 <button class="nav-tab ${page === 'messages' ? 'active' : ''}" onclick="goMessages()">💬 Сообщения</button>
                 <button class="nav-tab ${page === 'profile' ? 'active' : ''}" onclick="goProfile('${currentUser.login}')">👤 Профиль</button>`;
 
-            // Админ-панель верификации (только для тебя)
-            if (currentUser.login === 'иван милин') {
+            // Админ-панель верификации (только для разработчиков)
+            if (DEVS.includes((currentUser.login || '').toLowerCase())) {
                 tabs += `<button class="nav-tab ${page === 'verification' ? 'active' : ''}" onclick="goVerification()">💎 Верификация</button>`;
             }
 
@@ -335,8 +475,9 @@
                     <textarea id="postInput" placeholder="Что нового? #аниме"></textarea>
                     
                     <!-- Превью выбранного фото -->
-                    <div id="postInput-preview" style="margin:8px 0; display:none; max-width:100%;">
-                        <img id="postInput-preview-img" style="max-width:100%; max-height:220px; border-radius:10px; border:1px solid var(--border);">
+                    <div id="postInput-preview" style="margin:8px 0; display:none; position:relative; max-width:100%;">
+                        <img id="postInput-preview-img" style="max-width:100%; max-height:220px; border-radius:10px; border:1px solid var(--border); display:block;">
+                        <span onclick="clearPostPhoto('postInput')" style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,0.65);color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;font-weight:700;">✕</span>
                     </div>
                     
                     <div class="row">
@@ -345,11 +486,10 @@
                             <button class="tag" onclick="addTag('МагическаяБитва')">👁️ Магия</button>
                             <button class="tag" onclick="addTag('ВанПис')">🏴‍☠️ Ван-Пис</button>
                             
-                            <!-- Кнопка прикрепить фото -->
-                            <label class="tag" style="cursor:pointer; background:var(--surface2); border:1px solid var(--blue); color:var(--blue);">
-                                📷 Фото
-                                <input type="file" id="postInput-file" accept="image/*" style="display:none;" onchange="previewImage('postInput')">
-                            </label>
+                            <!-- Кнопка открыть галерею -->
+                            <button class="tag" style="background:var(--surface2); border:1px solid var(--blue); color:var(--blue);" onclick="openPhotoGallery('postInput')">
+                                🖼️ Галерея
+                            </button>
                         </div>
                         <button class="btn btn-pink btn-sm" onclick="createPost('postInput')">Опубликовать</button>
                     </div>
@@ -390,6 +530,7 @@
                             ${esc(post.username)}
                             ${post.is_verified ? `<span style="margin-left:4px; font-size:16px; filter: drop-shadow(0 0 4px #4dc9f6);">💎</span>` : ''}
                             <span style="font-size:10px; background:linear-gradient(90deg, #ff6b9d, #4dc9f6); color:#fff; padding:2px 8px; border-radius:10px; margin-left:6px; font-weight:600; box-shadow:0 0 6px rgba(255,107,157,0.4);">LVL ${post.level || 1}</span>
+                            ${devBadge(post.user_login)}
                         </div>
                         <div class="post-time">${time}</div>
                     </div>
@@ -444,11 +585,24 @@
             if (list.length === 0) {
                 html += '<div class="card" style="text-align:center;color:var(--text2);">Нет сообщений</div>';
             } else {
+                // Загружаем данные пользователей для аватаров
+                const logins = list.map(d => d.login);
+                const { data: usersData } = await SB.from('users').select('login, username, avatar_url').in('login', logins);
+                const userMap = {};
+                (usersData || []).forEach(u => {
+                    // Подставляем avatar из localStorage если нет в БД
+                    if (!u.avatar_url) {
+                        const avatarMap = JSON.parse(localStorage.getItem('niji_avatars') || '{}');
+                        if (avatarMap[u.login]) u.avatar_url = avatarMap[u.login];
+                    }
+                    userMap[u.login] = u;
+                });
                 list.forEach(d => {
                     const t = new Date(d.time).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+                    const uObj = userMap[d.login] || { login: d.login, username: d.username, avatar_url: null };
                     html += `
                     <div class="dialog-row" onclick="openChat('${d.login}','${esc(d.username)}')">
-                        <div class="dialog-avatar" style="background:${color(d.login)};">${d.username[0].toUpperCase()}</div>
+                        ${buildAvatarHtml(uObj, 44, 18)}
                         <div class="dialog-info">
                             <div class="dialog-name">${esc(d.username)}</div>
                             <div class="dialog-last">${esc(d.lastText.substring(0, 40))}${d.lastText.length > 40 ? '...' : ''}</div>
@@ -466,9 +620,14 @@
             let html = '<button class="btn-back" onclick="goMessages()">← Назад</button><h3 style="margin:12px 0;">👥 Выбери кому написать</h3>';
             users.forEach(u => {
                 if (u.login === currentUser.login) return;
+                // Подставляем аватар из localStorage если нет в БД
+                if (!u.avatar_url) {
+                    const avatarMap = JSON.parse(localStorage.getItem('niji_avatars') || '{}');
+                    if (avatarMap[u.login]) u.avatar_url = avatarMap[u.login];
+                }
                 html += `
                 <div class="dialog-row" onclick="openChat('${u.login}','${esc(u.username)}')">
-                    <div class="dialog-avatar" style="background:${color(u.login)};">${u.username[0].toUpperCase()}</div>
+                    ${buildAvatarHtml(u, 44, 18)}
                     <div class="dialog-info"><div class="dialog-name">${esc(u.username)}</div></div>
                     <button class="btn-msg">💬</button>
                 </div>`;
@@ -488,9 +647,27 @@
             const { data: messages } = await SB.from('messages').select('*')
                 .or(`and(sender_login.eq.${currentUser.login},receiver_login.eq.${chatWith.login}),and(sender_login.eq.${chatWith.login},receiver_login.eq.${currentUser.login})`)
                 .order('created_at', { ascending: true });
-            let html = `<h3>💬 ${esc(chatWith.username)}</h3><div style="max-height:50vh;overflow-y:auto;padding:10px 0;" id="chatMessages">`;
+
+            // Загружаем аватар собеседника
+            let partnerObj = { login: chatWith.login, username: chatWith.username, avatar_url: null };
+            const { data: partnerData } = await SB.from('users').select('login, username, avatar_url').eq('login', chatWith.login).single();
+            if (partnerData) {
+                if (!partnerData.avatar_url) {
+                    const avatarMap = JSON.parse(localStorage.getItem('niji_avatars') || '{}');
+                    if (avatarMap[chatWith.login]) partnerData.avatar_url = avatarMap[chatWith.login];
+                }
+                partnerObj = partnerData;
+            }
+
+            // Запоминаем позицию скролла (если окно уже открыто и не внизу — не прыгаем)
+            const existingMsgs = document.getElementById('chatMessages');
+            const wasAtBottom = !existingMsgs || (existingMsgs.scrollHeight - existingMsgs.scrollTop - existingMsgs.clientHeight < 60);
+            const prevScrollTop = existingMsgs ? existingMsgs.scrollTop : null;
+
+            // Строим сообщения отдельно
+            let msgsHtml = '';
             if (!messages || messages.length === 0) {
-                html += '<div style="text-align:center;color:var(--text2);padding:20px;">Напиши первое сообщение!</div>';
+                msgsHtml = '<div style="text-align:center;color:var(--text2);padding:40px 20px;">Напиши первое сообщение! 👋</div>';
             } else {
                 messages.forEach(msg => {
                     const isMine = msg.sender_login === currentUser.login;
@@ -499,8 +676,10 @@
                     if (isMine) {
                         deleteBtn = `<span style="margin-left:8px; cursor:pointer; font-size:11px; opacity:0.6;" onclick="deleteMessage(${msg.id}, event)">🗑️</span>`;
                     }
-                    html += `<div class="msg-bubble ${isMine ? 'msg-sent' : 'msg-received'}">
-                        ${esc(msg.text)}
+                    msgsHtml += `<div class="msg-bubble ${isMine ? 'msg-sent' : 'msg-received'}">
+                        ${msg.image_url ? `<img src="${msg.image_url}" style="max-width:100%;max-height:260px;border-radius:10px;display:block;margin-bottom:${msg.text ? '6px' : '0'};" onerror="this.style.display='none'">` : ''}
+                        ${msg.audio_url ? `<audio controls src="${msg.audio_url}" style="max-width:100%;border-radius:8px;"></audio>` : ''}
+                        ${msg.text ? esc(msg.text) : ''}
                         <div style="font-size:9px; opacity:0.6; margin-top:4px; display:flex; align-items:center; justify-content:space-between;">
                             <span>${t}</span>
                             ${deleteBtn}
@@ -508,8 +687,38 @@
                     </div>`;
                 });
             }
-            html += `</div>
-                <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px; padding:0 4px;">
+
+            // Если чат уже отрисован — обновляем только блок сообщений
+            const existingContainer = document.getElementById('chatMessages');
+            if (existingContainer) {
+                existingContainer.innerHTML = msgsHtml;
+                // Скролл: если был внизу — едем вниз; иначе — сохраняем позицию
+                if (wasAtBottom) {
+                    existingContainer.scrollTop = existingContainer.scrollHeight;
+                } else if (prevScrollTop !== null) {
+                    existingContainer.scrollTop = prevScrollTop;
+                }
+                return;
+            }
+
+            // Первый рендер — строим всю структуру
+            let html = `
+            <div style="display:flex; align-items:center; gap:10px; padding:14px 16px; background:var(--surface); border-bottom:1px solid var(--border); flex-shrink:0;">
+                ${buildAvatarHtml(partnerObj, 40, 17)}
+                <h3 style="margin:0; flex:1; font-size:15px;">💬 ${esc(chatWith.username)}</h3>
+                <button onclick="closeChat()" style="background:none; border:none; color:var(--text2); cursor:pointer; font-size:20px; padding:4px 8px; border-radius:8px;" title="Закрыть">✕</button>
+            </div>
+            <div id="chatMessages" style="flex:1; overflow-y:auto; padding:14px 16px; display:flex; flex-direction:column; gap:2px; scroll-behavior:smooth;">
+                ${msgsHtml}
+            </div>
+            <div style="flex-shrink:0; border-top:1px solid var(--border); background:var(--surface); padding:8px 12px;">
+                <!-- Превью фото перед отправкой -->
+                <div id="chatPhotoPreview" style="display:none; padding:4px 0 8px; position:relative;">
+                    <img id="chatPhotoPreviewImg" style="max-height:80px; border-radius:8px; border:2px solid var(--pink);">
+                    <span onclick="clearChatPhoto()" style="position:absolute;top:2px;left:2px;background:rgba(0,0,0,0.6);color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:12px;">✕</span>
+                </div>
+                <!-- Эмодзи -->
+                <div style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:8px;">
                     <span class="emoji-btn" onclick="insertEmoji('😊')">😊</span>
                     <span class="emoji-btn" onclick="insertEmoji('😂')">😂</span>
                     <span class="emoji-btn" onclick="insertEmoji('❤️')">❤️</span>
@@ -519,29 +728,49 @@
                     <span class="emoji-btn" onclick="insertEmoji('✨')">✨</span>
                     <span class="emoji-btn" onclick="insertEmoji('🥺')">🥺</span>
                 </div>
-
-                <div class="msg-input-area">
+                <!-- Поле ввода -->
+                <div class="msg-input-area" style="margin:0; position:static;">
                     <input id="chatInput" placeholder="Сообщение..." onkeydown="if(event.key==='Enter')sendMessage()">
-                    
-                    <!-- Кнопка голосового сообщения -->
-                    <button id="voiceBtn" class="btn btn-outline btn-sm" onclick="toggleVoiceRecording()" style="padding:8px 12px; min-width:42px; font-size:16px;">
-                        🎤
-                    </button>
-                    
-                    <button class="btn btn-pink btn-sm" onclick="sendMessage()">Отправить</button>
+                    <label style="cursor:pointer; display:flex; align-items:center; justify-content:center; min-width:38px; height:38px; background:var(--surface2); border:1px solid var(--border); border-radius:10px; font-size:16px;" title="Отправить фото">
+                        📷
+                        <input type="file" accept="image/*" style="display:none;" onchange="previewChatPhoto(this)">
+                    </label>
+                    <button id="voiceBtn" class="btn btn-outline btn-sm" onclick="toggleVoiceRecording()" style="padding:8px 12px; min-width:42px; font-size:16px;">🎤</button>
+                    <button class="btn btn-pink btn-sm" onclick="sendMessage()">→</button>
                 </div>
-                <button class="btn-link" onclick="closeChat()" style="margin-top:8px;">Закрыть чат</button>`;
+            </div>`;
             el.innerHTML = html;
             setTimeout(() => {
                 const container = document.getElementById('chatMessages');
                 if (container) container.scrollTop = container.scrollHeight;
-            }, 100);
+            }, 50);
         }
         function insertEmoji(emoji) {
             const input = document.getElementById('chatInput');
             if (!input) return;
             input.value = input.value + emoji;
             input.focus();
+        }
+
+        let chatPhotoData = null;
+
+        function previewChatPhoto(input) {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = e => {
+                chatPhotoData = e.target.result;
+                const wrap = document.getElementById('chatPhotoPreview');
+                const img = document.getElementById('chatPhotoPreviewImg');
+                if (wrap && img) { img.src = e.target.result; wrap.style.display = 'block'; }
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function clearChatPhoto() {
+            chatPhotoData = null;
+            const wrap = document.getElementById('chatPhotoPreview');
+            if (wrap) wrap.style.display = 'none';
         }
 
         async function deleteMessage(messageId, e) {
@@ -559,13 +788,17 @@
             const input = document.getElementById('chatInput');
             if (!input || !chatWith) return;
             const text = input.value.trim();
-            if (!text) return;
+            if (!text && !chatPhotoData) return;
             await SB.from('messages').insert([{
                 sender_login: currentUser.login, sender_username: currentUser.username,
                 receiver_login: chatWith.login, receiver_username: chatWith.username,
-                text: text
+                text: text || '',
+                image_url: chatPhotoData || null
             }]);
             input.value = '';
+            chatPhotoData = null;
+            const wrap = document.getElementById('chatPhotoPreview');
+            if (wrap) wrap.style.display = 'none';
             await renderChatMessages();
         }
         function closeChat() {
@@ -693,6 +926,7 @@
                                     ${esc(u.username)}
                                     ${u.is_verified ? `<span style="margin-left:4px; font-size:15px; filter: drop-shadow(0 0 4px #4dc9f6);">💎</span>` : ''}
                                     <span style="font-size:9px; background:linear-gradient(90deg, #ff6b9d, #4dc9f6); color:#fff; padding:1px 6px; border-radius:8px; margin-left:5px; font-weight:600;">LVL ${u.level || 1}</span>
+                                    ${devBadge(u.login)}
                                 </div>
                                 <div style="font-size:11px;color:var(--text2);">Зарегистрирован: ${regDate}</div>
                             </div>
@@ -733,13 +967,37 @@
             user.followers_count = followers_count || 0;
             user.following_count = following_count || 0;
             user.is_following = is_following;
-            let html = `<button class="btn-back" onclick="goHome()">← Назад</button>
-                <div class="card" style="text-align:center;margin-top:12px;">
-                    ${buildAvatarHtml(user, 70, 28)}
+            // Обложка профиля
+            const coverUrl = (() => {
+                try {
+                    const coverMap = JSON.parse(localStorage.getItem('niji_covers') || '{}');
+                    return coverMap[profileLogin] || null;
+                } catch { return null; }
+            })();
 
-                    <h2 style="margin-top:10px;">
+            let html = `<button class="btn-back" onclick="goHome()">← Назад</button>
+                <div class="card" style="text-align:center;margin-top:12px;padding:0;overflow:hidden;">
+                    <!-- Обложка + аватар поверх -->
+                    <div style="position:relative; margin-bottom:50px;">
+                        <div class="profile-cover">
+                            ${coverUrl
+                                ? (coverUrl.startsWith('linear-gradient')
+                                    ? `<div style="width:100%;height:140px;background:${coverUrl};"></div>`
+                                    : `<img class="profile-cover-img" src="${esc(coverUrl)}" alt="Обложка">`)
+                                : `<div class="profile-cover-placeholder">🌸 Нет обложки</div>`
+                            }
+                        </div>
+                        <!-- Аватар по центру поверх обложки -->
+                        <div style="position:absolute; bottom:-46px; left:50%; transform:translateX(-50%); border:4px solid var(--surface); border-radius:50%; box-shadow:0 4px 16px rgba(0,0,0,0.5);">
+                            ${buildAvatarHtml(user, 80, 32)}
+                        </div>
+                    </div>
+                    <div style="padding:8px 14px 14px;">
+
+                    <h2 style="margin-top:6px;">
                         ${esc(user.username)}
                         ${user.is_verified ? `<span style="margin-left:6px; font-size:22px; filter: drop-shadow(0 0 6px #4dc9f6);">💎</span>` : ''}
+                        ${devBadge(profileLogin)}
                     </h2>
                     <div style="color:var(--text2);">@${esc(profileLogin)}</div>
 
@@ -783,10 +1041,16 @@
                         </button>
                     ` : ''}
                     ${isMe ? `
-                        <button class="btn btn-outline" style="margin-top:10px; border-color:var(--pink); color:var(--pink);" onclick="openAvatarGallery()">
-                            🖼️ Сменить аватар
-                        </button>
+                        <div style="display:flex; gap:8px; justify-content:center; margin-top:10px; flex-wrap:wrap;">
+                            <button class="btn btn-outline" style="border-color:var(--pink); color:var(--pink);" onclick="openAvatarGallery()">
+                                🖼️ Аватар
+                            </button>
+                            <button class="btn btn-outline" style="border-color:var(--blue); color:var(--blue);" onclick="openCoverGallery()">
+                                🖼️ Обложка
+                            </button>
+                        </div>
                     ` : ''}
+                    </div>
                 </div>`;
             if (isMe) {
                 html += `
@@ -794,8 +1058,9 @@
                     <textarea id="profilePostInput" placeholder="Что нового? #аниме"></textarea>
                     
                     <!-- Превью фото в профиле -->
-                    <div id="profilePostInput-preview" style="margin:8px 0; display:none; max-width:100%;">
-                        <img id="profilePostInput-preview-img" style="max-width:100%; max-height:220px; border-radius:10px; border:1px solid var(--border);">
+                    <div id="profilePostInput-preview" style="margin:8px 0; display:none; position:relative; max-width:100%;">
+                        <img id="profilePostInput-preview-img" style="max-width:100%; max-height:220px; border-radius:10px; border:1px solid var(--border); display:block;">
+                        <span onclick="clearPostPhoto('profilePostInput')" style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,0.65);color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;font-weight:700;">✕</span>
                     </div>
                     
                     <div class="row">
@@ -804,10 +1069,9 @@
                             <button class="tag" onclick="addTag('МагическаяБитва')">👁️ Магия</button>
                             <button class="tag" onclick="addTag('ВанПис')">🏴‍☠️ Ван-Пис</button>
                             
-                            <label class="tag" style="cursor:pointer; background:var(--surface2); border:1px solid var(--blue); color:var(--blue);">
-                                📷 Фото
-                                <input type="file" id="profilePostInput-file" accept="image/*" style="display:none;" onchange="previewImage('profilePostInput')">
-                            </label>
+                            <button class="tag" style="cursor:pointer; background:var(--surface2); border:1px solid var(--blue); color:var(--blue);" onclick="openPhotoGallery('profilePostInput')">
+                                🖼️ Галерея
+                            </button>
                         </div>
                         <button class="btn btn-pink btn-sm" onclick="createPost('profilePostInput')">Опубликовать</button>
                     </div>
@@ -885,18 +1149,33 @@
             if (!input) return;
 
             const text = input.value.trim();
-            const fileInput = document.getElementById(inputId + '-file');
-            const file = fileInput ? fileInput.files[0] : null;
+            const previewImg = document.getElementById(inputId + '-preview-img');
+            const previewBox = document.getElementById(inputId + '-preview');
+            const photoSrc = (previewImg && previewBox && previewBox.style.display !== 'none') ? previewImg.src : null;
 
-            if (!text && !file) return toast('Напиши текст или прикрепи фото!', true);
+            if (!text && !photoSrc) return toast('Напиши текст или прикрепи фото!', true);
 
             let imageUrl = null;
-            if (file) {
+
+            if (photoSrc) {
                 toast('Загружаю фото...');
-                imageUrl = await uploadPostImage(file);
-                if (!imageUrl) {
-                    toast('Фото не загрузилось, публикую только текст', true);
-                    // Продолжаем без фото
+                try {
+                    // Сжимаем фото через canvas до макс 900px и 80% качества
+                    const compressed = await compressImage(photoSrc, 900, 0.8);
+                    const res = await fetch(compressed);
+                    const blob = await res.blob();
+                    const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
+                    const uploaded = await uploadPostImage(file);
+                    if (uploaded) {
+                        imageUrl = uploaded;
+                    } else {
+                        // Supabase Storage не работает — сохраняем сжатый base64
+                        imageUrl = compressed;
+                    }
+                } catch(e) {
+                    console.error('Ошибка фото:', e);
+                    // Публикуем без фото
+                    toast('⚠️ Фото не прикрепилось, публикую без него');
                 }
             }
 
@@ -909,29 +1188,57 @@
                 image_url: imageUrl
             }]);
 
-            if (error) return toast('❌ ' + error.message, true);
+            if (error) {
+                // Если ошибка из-за большого фото — пробуем без него
+                if (imageUrl && (error.message.includes('too large') || error.message.includes('payload') || error.code === '54000')) {
+                    const { error: e2 } = await SB.from('posts').insert([{
+                        user_login: currentUser.login,
+                        username: currentUser.username,
+                        content: text || '',
+                        tag: tagMatch ? tagMatch[1] : '',
+                        image_url: null
+                    }]);
+                    if (e2) return toast('❌ ' + e2.message, true);
+                    toast('⚠️ Пост опубликован, но фото не прикрепилось (слишком большое)');
+                } else {
+                    return toast('❌ ' + error.message, true);
+                }
+            } else {
+                toast(imageUrl ? '✅ Опубликовано с фото!' : '✅ Опубликовано!');
+            }
 
             // Очистка формы
             input.value = '';
-            if (fileInput) fileInput.value = '';
-            const preview = document.getElementById(inputId + '-preview');
-            if (preview) preview.style.display = 'none';
+            if (previewBox) previewBox.style.display = 'none';
+            if (previewImg) previewImg.src = '';
 
             document.getElementById('notifText').textContent = '📝 ' + currentUser.username + ' опубликовал(а) пост!';
-            toast('✅ Опубликовано!');
 
-            // +10 репутации за пост с фото
-            if (imageUrl) {
-                await addReputation(currentUser.login, 10, 'пост с фото');
-            }
-
-            // Обновляем last_seen
+            if (imageUrl) await addReputation(currentUser.login, 10, 'пост с фото');
             await SB.from('users').update({ last_seen: new Date().toISOString() }).eq('login', currentUser.login);
-
             await stats();
-
-            // Всегда перекидываем в общую Ленту после публикации поста
             goHome();
+        }
+
+        // Сжатие изображения через canvas
+        function compressImage(src, maxSize, quality) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => {
+                    let w = img.width, h = img.height;
+                    if (w > maxSize || h > maxSize) {
+                        if (w > h) { h = Math.round(h * maxSize / w); w = maxSize; }
+                        else { w = Math.round(w * maxSize / h); h = maxSize; }
+                    }
+                    const canvas = document.createElement('canvas');
+                    canvas.width = w; canvas.height = h;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, w, h);
+                    resolve(canvas.toDataURL('image/jpeg', quality));
+                };
+                img.onerror = reject;
+                img.src = src;
+            });
         }
 
         // === Верификация ===
@@ -992,11 +1299,22 @@
             if (error) return toast('Ошибка отправки заявки: ' + error.message, true);
 
             toast('Заявка на верификацию отправлена! Ожидай решения.');
+
+            // Уведомляем всех разработчиков
+            for (const devLogin of DEVS) {
+                await SB.from('notifications').insert([{
+                    user_login: devLogin,
+                    type: 'verification_request',
+                    text: `💎 ${currentUser.username} (@${currentUser.login}) хочет верификацию`,
+                    is_read: false
+                }]);
+            }
+            loadNotifications();
         }
 
         // === Админ-панель верификации ===
         async function renderVerification() {
-            if (currentUser.login !== 'иван милин') return goHome();
+            if (!DEVS.includes((currentUser.login || '').toLowerCase())) return goHome();
 
             const mc = document.getElementById('mainContainer');
             const { data: requests } = await SB.from('verification_requests')
@@ -1023,7 +1341,7 @@
                                 </div>
                                 <div style="display:flex; gap:8px;">
                                     <button class="btn btn-pink btn-sm" onclick="approveVerification('${req.id}', '${req.user_login}')">Принять</button>
-                                    <button class="btn btn-outline btn-sm" style="border-color:var(--danger);color:var(--danger);" onclick="rejectVerification('${req.id}')">Отклонить</button>
+                                    <button class="btn btn-outline btn-sm" style="border-color:var(--danger);color:var(--danger);" onclick="rejectVerification('${req.id}', '${req.user_login}')">Отклонить</button>
                                 </div>
                             </div>
                         </div>
@@ -1042,18 +1360,38 @@
 
             await SB.from('users').update({ is_verified: true }).eq('login', userLogin);
 
+            // Уведомление пользователю
+            await SB.from('notifications').insert([{
+                user_login: userLogin,
+                type: 'verification_approved',
+                text: '✅ Твоя заявка на верификацию одобрена! Ты теперь верифицирован 💎',
+                is_read: false
+            }]);
+
             toast('Заявка одобрена! Пользователь получил 💎');
+            loadNotifications();
             await renderVerification();
         }
 
-        async function rejectVerification(requestId) {
+        async function rejectVerification(requestId, userLogin) {
             await SB.from('verification_requests').update({
                 status: 'rejected',
                 reviewed_at: new Date().toISOString(),
                 reviewed_by: currentUser.login
             }).eq('id', requestId);
 
+            // Уведомление пользователю
+            if (userLogin) {
+                await SB.from('notifications').insert([{
+                    user_login: userLogin,
+                    type: 'verification_rejected',
+                    text: '❌ Твоя заявка на верификацию была отклонена',
+                    is_read: false
+                }]);
+            }
+
             toast('Заявка отклонена');
+            loadNotifications();
             await renderVerification();
         }
 
@@ -1109,27 +1447,127 @@
             if (input) { input.value += ' #' + t; input.focus(); }
         }
 
-        // Превью картинки перед отправкой поста
+        // Галерея фото для постов
+        function openPhotoGallery(inputId) {
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.id = 'photoGalleryModal';
+            modal.innerHTML = `
+                <div class="modal" style="max-width:440px;">
+                    <h2 style="margin-bottom:14px; text-align:center;">🖼️ Выбери фото</h2>
+
+                    <!-- Превью -->
+                    <div id="galleryPreviewBox" style="width:100%;height:100px;border-radius:10px;overflow:hidden;margin-bottom:12px;border:1px solid var(--border);background:var(--surface2);display:flex;align-items:center;justify-content:center;color:var(--text2);font-size:13px;">
+                        Фото не выбрано
+                    </div>
+
+                    <!-- Табы -->
+                    <div class="avatar-tabs" style="margin-bottom:12px;">
+                        <button class="avatar-tab active" id="gallTabDevice" onclick="switchGallTab('device')">📱 С устройства</button>
+                        <button class="avatar-tab" id="gallTabUrl" onclick="switchGallTab('url')">🔗 По ссылке</button>
+                    </div>
+
+                    <div id="gallTabContent">
+                        <!-- С устройства -->
+                        <div style="text-align:center; padding:10px 0;">
+                            <label style="cursor:pointer; display:inline-block;">
+                                <div class="btn btn-outline" style="display:inline-flex; align-items:center; gap:8px; padding:12px 24px; font-size:14px;">
+                                    📂 Открыть галерею
+                                </div>
+                                <input type="file" accept="image/*" style="display:none;" id="galleryFileInput" onchange="galleryPickFile(this)">
+                            </label>
+                            <p style="font-size:11px; color:var(--text2); margin-top:10px;">Выбери картинку с телефона или компьютера</p>
+                        </div>
+                    </div>
+
+                    <div style="display:flex; gap:8px; margin-top:14px;">
+                        <button class="btn-full" style="flex:1;" onclick="confirmGalleryPhoto('${inputId}')">✅ Прикрепить</button>
+                        <button style="flex:0.4; padding:10px; border-radius:8px; background:var(--surface2); border:1px solid var(--border); color:var(--text); cursor:pointer; font-family:inherit;" onclick="document.getElementById('photoGalleryModal').remove()">Отмена</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+        }
+
+        let gallerySelectedSrc = null;
+
+        function switchGallTab(tab) {
+            document.getElementById('gallTabDevice')?.classList.toggle('active', tab === 'device');
+            document.getElementById('gallTabUrl')?.classList.toggle('active', tab === 'url');
+            const tc = document.getElementById('gallTabContent');
+            if (!tc) return;
+            if (tab === 'device') {
+                tc.innerHTML = `
+                    <div style="text-align:center; padding:10px 0;">
+                        <label style="cursor:pointer; display:inline-block;">
+                            <div class="btn btn-outline" style="display:inline-flex; align-items:center; gap:8px; padding:12px 24px; font-size:14px;">
+                                📂 Открыть галерею
+                            </div>
+                            <input type="file" accept="image/*" style="display:none;" id="galleryFileInput" onchange="galleryPickFile(this)">
+                        </label>
+                        <p style="font-size:11px; color:var(--text2); margin-top:10px;">Выбери картинку с телефона или компьютера</p>
+                    </div>`;
+            } else {
+                tc.innerHTML = `
+                    <div style="padding:8px 0;">
+                        <input id="galleryUrlInput" placeholder="Вставь ссылку на картинку (https://...)" 
+                            style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;color:var(--text);font-family:inherit;font-size:13px;margin-bottom:8px;"
+                            oninput="galleryPreviewUrl(this.value)">
+                        <p style="font-size:11px; color:var(--text2);">Вставь прямую ссылку на изображение</p>
+                    </div>`;
+            }
+        }
+
+        function galleryPickFile(input) {
+            const file = input.files[0];
+            if (!file || !file.type.startsWith('image/')) return toast('Только изображения!', true);
+            const reader = new FileReader();
+            reader.onload = e => {
+                gallerySelectedSrc = e.target.result;
+                const box = document.getElementById('galleryPreviewBox');
+                if (box) box.innerHTML = `<img src="${e.target.result}" style="width:100%;height:100%;object-fit:contain;border-radius:10px;">`;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function galleryPreviewUrl(url) {
+            if (!url.startsWith('http')) return;
+            gallerySelectedSrc = url;
+            const box = document.getElementById('galleryPreviewBox');
+            if (box) box.innerHTML = `<img src="${url}" style="width:100%;height:100%;object-fit:contain;border-radius:10px;" onerror="this.parentElement.innerHTML='❌ Не удалось загрузить картинку'; gallerySelectedSrc=null;">`;
+        }
+
+        function confirmGalleryPhoto(inputId) {
+            if (!gallerySelectedSrc) return toast('Сначала выбери фото!', true);
+            const previewBox = document.getElementById(inputId + '-preview');
+            const previewImg = document.getElementById(inputId + '-preview-img');
+            if (previewBox && previewImg) {
+                previewImg.src = gallerySelectedSrc;
+                previewBox.style.display = 'block';
+            }
+            document.getElementById('photoGalleryModal')?.remove();
+            gallerySelectedSrc = null;
+        }
+
+        function clearPostPhoto(inputId) {
+            const previewBox = document.getElementById(inputId + '-preview');
+            const previewImg = document.getElementById(inputId + '-preview-img');
+            if (previewBox) previewBox.style.display = 'none';
+            if (previewImg) previewImg.src = '';
+        }
+
+        // Превью картинки (старый хелпер, оставлен для совместимости)
         function previewImage(inputId) {
             const fileInput = document.getElementById(inputId + '-file');
-            const previewContainer = document.getElementById(inputId + '-preview');
-            const previewImg = document.getElementById(inputId + '-preview-img');
-
             if (!fileInput || !fileInput.files.length) return;
-
             const file = fileInput.files[0];
-            if (!file.type.startsWith('image/')) {
-                toast('Можно загружать только изображения', true);
-                fileInput.value = '';
-                return;
-            }
-
+            if (!file.type.startsWith('image/')) { toast('Только изображения!', true); return; }
             const reader = new FileReader();
-            reader.onload = function(e) {
-                if (previewContainer && previewImg) {
-                    previewImg.src = e.target.result;
-                    previewContainer.style.display = 'block';
-                }
+            reader.onload = e => {
+                const box = document.getElementById(inputId + '-preview');
+                const img = document.getElementById(inputId + '-preview-img');
+                if (box && img) { img.src = e.target.result; box.style.display = 'block'; }
             };
             reader.readAsDataURL(file);
         }
@@ -1465,6 +1903,178 @@
             return `<div style="${style}background:${color(user.login)};"><img src="${esc(av)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.parentElement.innerHTML='<span style=\\'color:#fff;font-weight:700;font-size:${fontSize}px;\\'>${user.username[0].toUpperCase()}</span>'"></div>`;
         }
 
+        // === Галерея обложек (только аниме) ===
+        const ANIME_COVERS = [
+            { label: '🌸 Сакура', url: 'https://images.unsplash.com/photo-1580477667995-2b94f01c9516?w=800&q=80' },
+            { label: '🌙 Лунный свет', url: 'https://images.unsplash.com/photo-1519638399535-1b036603ac77?w=800&q=80' },
+            { label: '🌊 Волна', url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&q=80' },
+            { label: '⭐ Звёзды', url: 'https://images.unsplash.com/photo-1462331940025-496dfbfc7564?w=800&q=80' },
+            { label: '🌺 Цветы', url: 'https://images.unsplash.com/photo-1490750967868-88df5691cc32?w=800&q=80' },
+            { label: '🌃 Ночной город', url: 'https://images.unsplash.com/photo-1551641506-ee5bf4cb45f1?w=800&q=80' },
+            // Аниме-стиль градиенты
+            { label: '💜 Фиолет', gradient: 'linear-gradient(135deg,#6c5ce7,#a29bfe,#fd79a8)' },
+            { label: '🩷 Сакура', gradient: 'linear-gradient(135deg,#ff6b9d,#ffeaa7,#fd79a8)' },
+            { label: '💙 Синий закат', gradient: 'linear-gradient(135deg,#0652dd,#4dc9f6,#2c3e50)' },
+            { label: '🌅 Огонь и небо', gradient: 'linear-gradient(135deg,#e74c3c,#f9ca24,#6c5ce7)' },
+            { label: '🌌 Галактика', gradient: 'linear-gradient(135deg,#0a0014,#2c1b47,#6c5ce7,#a29bfe)' },
+            { label: '🟢 Матрица', gradient: 'linear-gradient(135deg,#0a0a0a,#003300,#2ed573)' },
+            { label: '🔴 Кровь Демона', gradient: 'linear-gradient(135deg,#1a0000,#8b0000,#ff4757)' },
+            { label: '🌊 Глубина', gradient: 'linear-gradient(135deg,#000428,#004e92,#4dc9f6)' },
+            { label: '🌸 Рассвет', gradient: 'linear-gradient(135deg,#833ab4,#fd1d1d,#fcb045)' },
+            { label: '⚡ Молния', gradient: 'linear-gradient(135deg,#16213e,#0f3460,#f9ca24)' },
+            { label: '❄️ Лёд', gradient: 'linear-gradient(135deg,#74b9ff,#a29bfe,#dfe6e9)' },
+            { label: '🌿 Лес духов', gradient: 'linear-gradient(135deg,#134e5e,#71b280,#2ed573)' },
+        ];
+
+        let selectedCoverValue = null;
+
+        let coverGalleryTab = 'anime';
+        let uploadedCoverFile = null;
+
+        function openCoverGallery() {
+            if (!currentUser) return;
+            selectedCoverValue = null;
+            coverGalleryTab = 'anime';
+            uploadedCoverFile = null;
+
+            const coverMap = JSON.parse(localStorage.getItem('niji_covers') || '{}');
+            const currentCover = coverMap[currentUser.login] || null;
+
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.id = 'coverGalleryModal';
+            modal.innerHTML = `
+                <div class="modal" style="max-width:460px;">
+                    <h2 style="margin-bottom:12px; text-align:center;">🎨 Обложка профиля</h2>
+
+                    <!-- Превью обложки -->
+                    <div id="coverPreviewBox" style="width:100%;height:90px;border-radius:10px;overflow:hidden;margin-bottom:12px;border:1px solid var(--border);">
+                        ${currentCover
+                            ? (currentCover.startsWith('linear-gradient')
+                                ? `<div style="width:100%;height:100%;background:${currentCover};"></div>`
+                                : `<img src="${esc(currentCover)}" style="width:100%;height:100%;object-fit:cover;">`)
+                            : `<div style="width:100%;height:100%;background:linear-gradient(135deg,#12121a,#1a1026);display:flex;align-items:center;justify-content:center;color:var(--text2);font-size:13px;">Нет обложки</div>`
+                        }
+                    </div>
+
+                    <!-- Табы -->
+                    <div class="avatar-tabs" style="margin-bottom:12px;">
+                        <button class="avatar-tab active" id="coverTabAnime" onclick="switchCoverTab('anime')">🌸 Аниме</button>
+                        <button class="avatar-tab" id="coverTabCustom" onclick="switchCoverTab('custom')">📷 Своя фото</button>
+                    </div>
+
+                    <!-- Контент таба -->
+                    <div id="coverTabContent">
+                        <div class="cover-gallery-grid" id="coverGrid">
+                            ${ANIME_COVERS.map((c, i) => `
+                                <div class="cover-option" onclick="selectCover(${i}, this)" title="${c.label}">
+                                    ${c.gradient
+                                        ? `<div style="width:100%;height:100%;background:${c.gradient};border-radius:5px;"></div>`
+                                        : `<img src="${c.url}" alt="${c.label}" loading="lazy">`
+                                    }
+                                    <div class="cover-option-label">${c.label}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <div style="display:flex; gap:8px; margin-top:12px;">
+                        <button class="btn-full" style="flex:1;" onclick="saveCover()">✅ Сохранить</button>
+                        <button style="flex:0.4; padding:10px; border-radius:8px; background:var(--surface2); border:1px solid var(--border); color:var(--text); cursor:pointer; font-family:inherit;" onclick="resetCover()">🗑️ Убрать</button>
+                    </div>
+                    <button class="btn-link" onclick="document.getElementById('coverGalleryModal').remove()">Отмена</button>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+        }
+
+        function switchCoverTab(tab) {
+            coverGalleryTab = tab;
+            document.getElementById('coverTabAnime')?.classList.toggle('active', tab === 'anime');
+            document.getElementById('coverTabCustom')?.classList.toggle('active', tab === 'custom');
+            const tc = document.getElementById('coverTabContent');
+            if (!tc) return;
+            if (tab === 'anime') {
+                tc.innerHTML = `
+                    <div class="cover-gallery-grid" id="coverGrid">
+                        ${ANIME_COVERS.map((c, i) => `
+                            <div class="cover-option" onclick="selectCover(${i}, this)" title="${c.label}">
+                                ${c.gradient
+                                    ? `<div style="width:100%;height:100%;background:${c.gradient};border-radius:5px;"></div>`
+                                    : `<img src="${c.url}" alt="${c.label}" loading="lazy">`
+                                }
+                                <div class="cover-option-label">${c.label}</div>
+                            </div>
+                        `).join('')}
+                    </div>`;
+            } else {
+                tc.innerHTML = `
+                    <div style="text-align:center; padding:16px;">
+                        <p style="font-size:13px; color:var(--text2); margin-bottom:12px;">Загрузи своё изображение для обложки</p>
+                        <label style="cursor:pointer;">
+                            <div class="btn btn-outline" style="display:inline-block; margin-bottom:10px;">📁 Выбрать фото</div>
+                            <input type="file" accept="image/*" style="display:none;" onchange="previewCustomCover(this)">
+                        </label>
+                        <div id="customCoverPreviewWrap" style="display:none; margin-top:8px;">
+                            <img id="customCoverPreviewImg" style="width:100%;max-height:100px;object-fit:cover;border-radius:8px;border:2px solid var(--pink);">
+                            <p style="font-size:11px;color:var(--green);margin-top:6px;">✓ Готово к сохранению</p>
+                        </div>
+                    </div>`;
+            }
+        }
+
+        function previewCustomCover(input) {
+            const file = input.files[0];
+            if (!file) return;
+            uploadedCoverFile = file;
+            const reader = new FileReader();
+            reader.onload = e => {
+                selectedCoverValue = e.target.result; // base64
+                const wrap = document.getElementById('customCoverPreviewWrap');
+                const img = document.getElementById('customCoverPreviewImg');
+                if (wrap && img) { img.src = e.target.result; wrap.style.display = 'block'; }
+                const box = document.getElementById('coverPreviewBox');
+                if (box) box.innerHTML = `<img src="${e.target.result}" style="width:100%;height:100%;object-fit:cover;">`;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function selectCover(index, el) {
+            document.querySelectorAll('#coverGrid .cover-option').forEach(e => e.classList.remove('selected'));
+            el.classList.add('selected');
+            const c = ANIME_COVERS[index];
+            selectedCoverValue = c.gradient || c.url;
+            const box = document.getElementById('coverPreviewBox');
+            if (box) {
+                if (c.gradient) {
+                    box.innerHTML = `<div style="width:100%;height:100%;background:${c.gradient};"></div>`;
+                } else {
+                    box.innerHTML = `<img src="${c.url}" style="width:100%;height:100%;object-fit:cover;">`;
+                }
+            }
+        }
+
+        async function saveCover() {
+            if (!currentUser || !selectedCoverValue) return toast('Выберите обложку!', true);
+            const coverMap = JSON.parse(localStorage.getItem('niji_covers') || '{}');
+            coverMap[currentUser.login] = selectedCoverValue;
+            localStorage.setItem('niji_covers', JSON.stringify(coverMap));
+            toast('✅ Обложка сохранена!');
+            document.getElementById('coverGalleryModal')?.remove();
+            await renderProfile();
+        }
+
+        async function resetCover() {
+            if (!currentUser) return;
+            const coverMap = JSON.parse(localStorage.getItem('niji_covers') || '{}');
+            delete coverMap[currentUser.login];
+            localStorage.setItem('niji_covers', JSON.stringify(coverMap));
+            toast('Обложка убрана');
+            document.getElementById('coverGalleryModal')?.remove();
+            await renderProfile();
+        }
+
         async function logout() {
             currentUser = null;
             localStorage.removeItem('niji_session');
@@ -1486,6 +2096,39 @@
                 <div class="modal" style="max-width:460px; max-height:85vh; overflow-y:auto;">
                     <h2 style="margin-bottom:16px; text-align:center;">にじ Niji — Обновления</h2>
                     
+                    <!-- v1.9 -->
+                    <div style="background:var(--surface2); padding:16px; border-radius:12px; margin-bottom:14px; border-left:4px solid #2ed573;">
+                        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                            <strong style="color:#2ed573; font-size:15px;">v1.9</strong>
+                            <span style="font-size:11px; color:#888;">7 июня 2026</span>
+                        </div>
+                        <div style="font-size:13px; line-height:1.6;">
+                            <strong>📷 Своя обложка профиля</strong><br>
+                            • Вкладка «Своя фото» в галерее обложек<br>
+                            • Загрузи любое своё изображение как обложку<br><br>
+                            <strong>📷 Фото в сообщениях</strong><br>
+                            • Кнопка 📷 в чате — отправляй картинки<br>
+                            • Превью перед отправкой с кнопкой отмены<br>
+                            • Фото отображаются прямо в пузырях чата
+                        </div>
+                    </div>
+
+                    <!-- v1.8 -->
+                    <div style="background:var(--surface2); padding:16px; border-radius:12px; margin-bottom:14px; border-left:4px solid #ff6b9d;">
+                        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                            <strong style="color:#ff6b9d; font-size:15px;">v1.8</strong>
+                            <span style="font-size:11px; color:#888;">7 июня 2026</span>
+                        </div>
+                        <div style="font-size:13px; line-height:1.6;">
+                            <strong>🖼️ Обложка профиля</strong><br>
+                            • Галерея аниме-обложек для профиля (18 вариантов)<br>
+                            • Градиентные и фото-обложки<br>
+                            • Кнопка «Обложка» в своём профиле<br><br>
+                            <strong>💬 Улучшение сообщений</strong><br>
+                            • Аватары убраны из списка сообщений (чище и аккуратнее)
+                        </div>
+                    </div>
+
                     <!-- v1.7 -->
                     <div style="background:var(--surface2); padding:16px; border-radius:12px; margin-bottom:14px; border-left:4px solid #2ed573;">
                         <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
@@ -1563,11 +2206,92 @@
                 if (e.target === modal) modal.remove();
             });
         }
+        // === Система уведомлений ===
+        let notifPollInterval = null;
+
+        async function loadNotifications() {
+            if (!currentUser) return;
+            const { data: notifs } = await SB.from('notifications')
+                .select('*')
+                .eq('user_login', currentUser.login)
+                .order('created_at', { ascending: false })
+                .limit(30);
+
+            const unread = (notifs || []).filter(n => !n.is_read).length;
+            const badge = document.getElementById('notifBadge');
+            if (badge) {
+                badge.textContent = unread > 9 ? '9+' : unread;
+                badge.style.display = unread > 0 ? 'flex' : 'none';
+            }
+
+            const list = document.getElementById('notifList');
+            if (!list) return;
+            if (!notifs || notifs.length === 0) {
+                list.innerHTML = '<div style="padding:20px; text-align:center; color:var(--text2); font-size:13px;">Нет уведомлений</div>';
+                return;
+            }
+            list.innerHTML = notifs.map(n => {
+                const t = new Date(n.created_at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+                return `<div class="notif-item ${n.is_read ? '' : 'unread'}" onclick="markNotifRead('${n.id}', this)">
+                    <div>${esc(n.text)}</div>
+                    <div class="notif-time">${t}</div>
+                </div>`;
+            }).join('');
+        }
+
+        async function markNotifRead(id, el) {
+            await SB.from('notifications').update({ is_read: true }).eq('id', id);
+            el?.classList.remove('unread');
+            await loadNotifications();
+        }
+
+        async function markAllNotifRead() {
+            if (!currentUser) return;
+            await SB.from('notifications').update({ is_read: true }).eq('user_login', currentUser.login).eq('is_read', false);
+            await loadNotifications();
+        }
+
+        function toggleNotifPanel() {
+            const panel = document.getElementById('notifPanel');
+            if (!panel) return;
+            const isOpen = panel.classList.toggle('show');
+            // Закрываем dropdown если открыт
+            document.getElementById('userDropdown')?.classList.remove('show');
+            if (isOpen) loadNotifications();
+        }
+
         function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
         function color(s) { const c = ['#ff6b6b','#4ecdc4','#45b7d1','#f9ca24','#6c5ce7','#a29bfe','#ff9ff3']; let h = 0; for (let i = 0; i < s.length; i++) h = s.charCodeAt(i) + ((h << 5) - h); return c[Math.abs(h) % c.length]; }
+
+        const DEVS = ['иван милин', 'shadow'];
+        function devBadge(login) {
+            if (!DEVS.includes((login || '').toLowerCase())) return '';
+            return `<span style="
+                display:inline-flex; align-items:center; gap:3px;
+                background: linear-gradient(135deg, #1a1a2e, #16213e, #0f3460);
+                border: 1px solid #4dc9f6;
+                color: #4dc9f6;
+                font-size: 9px;
+                font-weight: 700;
+                padding: 2px 7px;
+                border-radius: 8px;
+                margin-left: 5px;
+                letter-spacing: 0.5px;
+                box-shadow: 0 0 8px rgba(77,201,246,0.35), inset 0 0 6px rgba(77,201,246,0.08);
+                vertical-align: middle;
+                text-transform: uppercase;
+            ">⚙️ DEV</span>`;
+        }
         document.getElementById('authModal').addEventListener('click', function(e) { if (e.target === this) closeAuth(); });
         document.getElementById('chatModal').addEventListener('click', function(e) { if (e.target === this) closeChat(); });
-        document.addEventListener('click', function(e) { if (!e.target.closest('.user-badge')) document.getElementById('userDropdown')?.classList.remove('show'); });
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.user-badge')) document.getElementById('userDropdown')?.classList.remove('show');
+            if (!e.target.closest('.notif-bell') && !e.target.closest('.notif-panel')) {
+                document.getElementById('notifPanel')?.classList.remove('show');
+            }
+        });
+        // Опрашиваем уведомления каждые 30 секунд
+        setInterval(() => { if (currentUser) loadNotifications(); }, 30000);
         init();
     </script>
 </body>
