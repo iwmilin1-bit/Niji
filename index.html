@@ -77,7 +77,7 @@ create table if not exists anime_rooms (
   video_url text,
   owner_login text not null,
   is_playing boolean default false,
-  current_time float default 0,
+  playback_time float default 0,
   updated_at timestamptz default now(),
   created_at timestamptz default now()
 );
@@ -133,7 +133,10 @@ alter publication supabase_realtime add table anime_room_chat;
     <style>
         :root{--bg:#0a0a0f;--surface:#12121a;--surface2:#1a1a26;--pink:#ff6b9d;--blue:#4dc9f6;--green:#2ed573;--text:#e0e0e0;--text2:#8888aa;--border:#252535;--danger:#ff4757}
         *{margin:0;padding:0;box-sizing:border-box}
-        body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+        body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;background-image:url('https://wallpaperaccess.com/full/1886512.jpg');background-size:cover;background-attachment:fixed;background-position:center top;background-repeat:no-repeat;}
+        body::before{display:none;}
+        .container{position:relative;z-index:1;}
+        #mainContainer{position:relative;z-index:1;}
         .header{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
         .logo{font-size:22px;font-weight:700;background:linear-gradient(135deg,var(--pink),var(--blue));-webkit-background-clip:text;-webkit-text-fill-color:transparent;cursor:pointer;transition:transform 0.2s ease}
         .logo:hover{transform:scale(1.05)}
@@ -466,8 +469,8 @@ alter publication supabase_realtime add table anime_room_chat;
     </div>
 
     <!-- Большая заметная статистика -->
-    <div style="background:#12121a; border-bottom:1px solid #252535; padding:8px 0; text-align:center; font-size:14px; color:#ccc; min-height:22px;">
-        <span id="bigStatsText" style="font-weight:600; letter-spacing:0.5px;">👥 Загрузка...</span>
+    <div style="background:rgba(18,18,26,0.85);border-bottom:1px solid #252535;padding:6px 16px;font-size:13px;color:#ccc;overflow-x:auto;white-space:nowrap;scrollbar-width:none;">
+        <span id="bigStatsText" style="font-weight:600;letter-spacing:0.3px;display:inline-flex;align-items:center;gap:14px;flex-wrap:nowrap;">👥 Загрузка...</span>
     </div>
     <div class="container">
         <div class="nav-tabs" id="navTabs"></div>
@@ -601,14 +604,11 @@ alter publication supabase_realtime add table anime_room_chat;
 
                 const bigStats = document.getElementById('bigStatsText');
                 if (bigStats) {
-                    bigStats.innerHTML = `
-                        👥 <strong style="color:#fff;">${u || 0}</strong> зарег. &nbsp;
-                        <span style="display:inline-flex;align-items:center;gap:4px;">
-                            🟢 <strong style="color:#2ed573;">${onlineCount}</strong> онлайн${onlineHtml}
-                        </span> &nbsp;
-                        📝 <strong style="color:#fff;">${p || 0}</strong> постов &nbsp;
-                        💬 <strong style="color:#4dc9f6;">${msgs || 0}</strong> сообщений
-                    `;
+                    bigStats.innerHTML =
+                        `<span>👥 <strong style="color:#fff;">${u || 0}</strong> зарег.</span>` +
+                        `<span style="display:inline-flex;align-items:center;gap:4px;">🟢 <strong style="color:#2ed573;">${onlineCount}</strong> онлайн${onlineHtml}</span>` +
+                        `<span>📝 <strong style="color:#fff;">${p || 0}</strong> постов</span>` +
+                        `<span>💬 <strong style="color:#4dc9f6;">${msgs || 0}</strong> сообщений</span>`;
                 }
             } catch (err) {
                 console.error('Ошибка статистики:', err);
@@ -2108,6 +2108,23 @@ alter table messages enable row level security;
 create policy "msg_ins" on messages for insert with check (true);
 create policy "msg_sel" on messages for select using (true);
 create policy "msg_del" on messages for delete using (true);
+
+alter table anime_rooms enable row level security;
+create policy "ar_sel" on anime_rooms for select using (true);
+create policy "ar_ins" on anime_rooms for insert with check (true);
+create policy "ar_upd" on anime_rooms for update using (true);
+create policy "ar_del" on anime_rooms for delete using (true);
+
+alter table anime_room_members enable row level security;
+create policy "arm_sel" on anime_room_members for select using (true);
+create policy "arm_ins" on anime_room_members for insert with check (true);
+create policy "arm_upd" on anime_room_members for update using (true);
+create policy "arm_del" on anime_room_members for delete using (true);
+
+alter table anime_room_chat enable row level security;
+create policy "arc_sel" on anime_room_chat for select using (true);
+create policy "arc_ins" on anime_room_chat for insert with check (true);
+create policy "arc_del" on anime_room_chat for delete using (true);
 
 alter table users add column if not exists avatar_url text;
 
@@ -3707,10 +3724,10 @@ create table if not exists notifications (
             }
 
             let html = `
-            <div class="card" style="margin-bottom:14px;">
-                <div style="font-size:16px;font-weight:700;margin-bottom:12px;">🎬 Комнаты для просмотра аниме</div>
-                <div style="font-size:12px;color:var(--text2);margin-bottom:14px;">Создай комнату, вставь ссылку на видео — и смотрите аниме вместе в реальном времени!</div>
-                <button class="btn btn-pink" onclick="openCreateRoomModal()" style="width:100%;">＋ Создать комнату</button>
+            <div style="background:linear-gradient(135deg,rgba(255,107,157,0.12),rgba(77,201,246,0.12));border:1px solid rgba(255,107,157,0.2);border-radius:16px;padding:18px;margin-bottom:14px;backdrop-filter:blur(10px);">
+                <div style="font-size:18px;font-weight:700;margin-bottom:6px;">🎬 Комнаты просмотра</div>
+                <div style="font-size:12px;color:var(--text2);margin-bottom:14px;line-height:1.5;">Создай комнату, вставь ссылку на видео — и смотрите аниме вместе в реальном времени!</div>
+                <button onclick="openCreateRoomModal()" style="width:100%;background:linear-gradient(135deg,var(--pink),#c44569);color:#fff;border:none;border-radius:12px;padding:11px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;box-shadow:0 4px 20px rgba(255,107,157,0.35);transition:transform 0.2s;" onmouseover="this.style.transform='scale(1.01)'" onmouseout="this.style.transform='scale(1)'">＋ Создать комнату</button>
             </div>`;
 
             if (!rooms || rooms.length === 0) {
@@ -3719,19 +3736,19 @@ create table if not exists notifications (
                 html += rooms.map(r => {
                     const count = membersMap[r.id] || 0;
                     const isOwner = r.owner_login === currentUser.login || DEVS.includes(currentUser.login?.toLowerCase());
-                    return `<div class="card" style="cursor:pointer;transition:all 0.2s;" onclick="joinRoom(${r.id})" onmouseover="this.style.borderColor='var(--pink)'" onmouseout="this.style.borderColor='var(--border)'">
+                    return `<div style="background:rgba(18,18,26,0.8);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.07);border-radius:14px;padding:14px;margin-bottom:10px;cursor:pointer;transition:all 0.2s;" onclick="joinRoom(${r.id})" onmouseover="this.style.borderColor='rgba(255,107,157,0.4)';this.style.transform='translateY(-1px)'" onmouseout="this.style.borderColor='rgba(255,255,255,0.07)';this.style.transform='translateY(0)'">
                         <div style="display:flex;align-items:flex-start;gap:12px;">
-                            <div style="font-size:36px;flex-shrink:0;">🎌</div>
+                            <div style="width:48px;height:48px;border-radius:12px;background:linear-gradient(135deg,rgba(255,107,157,0.2),rgba(77,201,246,0.2));display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0;border:1px solid rgba(255,107,157,0.15);">🎌</div>
                             <div style="flex:1;min-width:0;">
                                 <div style="font-weight:700;font-size:15px;margin-bottom:4px;">${esc(r.title)}</div>
-                                ${r.anime_title ? `<div style="font-size:12px;color:var(--blue);margin-bottom:4px;">📺 ${esc(r.anime_title)}</div>` : ''}
-                                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-                                    <span style="font-size:11px;color:var(--text2);">👤 ${esc(r.owner_login)}</span>
-                                    <span style="font-size:11px;color:${count > 0 ? 'var(--green)' : 'var(--text2)'};">🟢 ${count} онлайн</span>
-                                    <span style="font-size:11px;padding:2px 8px;border-radius:8px;background:${r.is_playing ? 'rgba(46,213,115,0.15)' : 'rgba(136,136,170,0.15)'};color:${r.is_playing ? 'var(--green)' : 'var(--text2)'};">${r.is_playing ? '▶ Идёт просмотр' : '⏸ Пауза'}</span>
+                                ${r.anime_title ? `<div style="font-size:12px;color:var(--blue);margin-bottom:6px;">📺 ${esc(r.anime_title)}</div>` : ''}
+                                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                                    <span style="font-size:10px;color:var(--text2);">👤 ${esc(r.owner_login)}</span>
+                                    <span style="font-size:10px;padding:2px 8px;border-radius:20px;background:${count > 0 ? 'rgba(46,213,115,0.12)' : 'rgba(136,136,170,0.1)'};color:${count > 0 ? 'var(--green)' : 'var(--text2)'};border:1px solid ${count > 0 ? 'rgba(46,213,115,0.2)' : 'transparent'};">🟢 ${count}</span>
+                                    <span style="font-size:10px;padding:2px 8px;border-radius:20px;background:${r.is_playing ? 'rgba(46,213,115,0.1)' : 'rgba(136,136,170,0.08)'};color:${r.is_playing ? 'var(--green)' : 'var(--text2)'};">${r.is_playing ? '▶ Просмотр' : '⏸ Ожидание'}</span>
                                 </div>
                             </div>
-                            ${isOwner ? `<button onclick="event.stopPropagation();deleteRoom(${r.id})" style="background:rgba(255,71,87,0.1);border:1px solid var(--danger);color:var(--danger);border-radius:8px;padding:4px 10px;font-size:11px;cursor:pointer;flex-shrink:0;">🗑️</button>` : ''}
+                            ${isOwner ? `<button onclick="event.stopPropagation();deleteRoom(${r.id})" style="background:rgba(255,71,87,0.08);border:1px solid rgba(255,71,87,0.3);color:var(--danger);border-radius:8px;padding:5px 10px;font-size:11px;cursor:pointer;flex-shrink:0;transition:all 0.2s;" onmouseover="this.style.background='rgba(255,71,87,0.2)'" onmouseout="this.style.background='rgba(255,71,87,0.08)'">🗑️</button>` : ''}
                         </div>
                     </div>`;
                 }).join('');
@@ -3769,7 +3786,7 @@ create table if not exists notifications (
 
             const { data, error } = await SB.from('anime_rooms').insert([{
                 title, anime_title: anime || null, video_url: videoUrl || null,
-                owner_login: currentUser.login, is_playing: false, current_time: 0
+                owner_login: currentUser.login, is_playing: false, playback_time: 0
             }]).select().single();
 
             if (error) return toast('Ошибка: ' + error.message, true);
@@ -3792,7 +3809,7 @@ create table if not exists notifications (
             currentRoom = roomId;
 
             // Регистрируемся как участник
-            await SB.from('anime_room_members').upsert([{
+            const { error: joinErr } = await SB.from('anime_room_members').upsert([{
                 room_id: roomId,
                 user_login: currentUser.login,
                 username: currentUser.username,
@@ -3800,6 +3817,17 @@ create table if not exists notifications (
                 joined_at: new Date().toISOString(),
                 last_seen: new Date().toISOString()
             }], { onConflict: 'room_id,user_login' });
+
+            if (joinErr) {
+                // Если ошибка RLS — показываем SQL для исправления
+                if (joinErr.message && (joinErr.message.includes('security') || joinErr.message.includes('policy'))) {
+                    toast('⚠️ Ошибка доступа к комнате. Выполни SQL из панели верификации!', true);
+                } else {
+                    toast('Ошибка входа в комнату: ' + joinErr.message, true);
+                }
+                currentRoom = null;
+                return;
+            }
 
             await renderRoomInside();
             startRoomRealtime(roomId);
@@ -3850,9 +3878,14 @@ create table if not exists notifications (
 
             const membersHtml = (members || []).map(m => {
                 const u = { login: m.user_login, username: m.username, avatar_url: m.avatar_url };
-                return `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;" title="${esc(m.username)}">
-                    ${buildAvatarHtml(u, 24, 10)}
-                    <span style="font-size:12px;">${esc(m.username)}</span>
+                const isRoomOwner = m.user_login === room.owner_login;
+                return `<div style="display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:8px;transition:background 0.2s;cursor:pointer;" onclick="goProfile('${m.user_login}')" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
+                    <div style="position:relative;flex-shrink:0;">
+                        ${buildAvatarHtml(u, 28, 11)}
+                        <span style="position:absolute;bottom:0;right:0;width:8px;height:8px;background:#2ed573;border-radius:50%;border:1px solid rgba(18,18,26,0.9);display:block;"></span>
+                    </div>
+                    <span style="font-size:12px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(m.username)}</span>
+                    ${isRoomOwner ? '<span style="font-size:10px;color:var(--pink);flex-shrink:0;">👑</span>' : ''}
                 </div>`;
             }).join('');
 
@@ -3860,12 +3893,12 @@ create table if not exists notifications (
                 const isMine = m.user_login === currentUser.login;
                 const u = { login: m.user_login, username: m.username, avatar_url: m.avatar_url };
                 const t = new Date(m.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-                return `<div style="display:flex;gap:6px;align-items:flex-start;margin-bottom:6px;${isMine ? 'flex-direction:row-reverse;' : ''}">
-                    ${buildAvatarHtml(u, 24, 10)}
-                    <div style="max-width:75%;">
-                        ${!isMine ? `<div style="font-size:10px;color:var(--text2);margin-bottom:2px;">${esc(m.username)}</div>` : ''}
-                        <div style="background:${isMine ? 'var(--pink)' : 'var(--surface2)'};color:${isMine ? '#fff' : 'var(--text)'};padding:6px 10px;border-radius:${isMine ? '12px 12px 4px 12px' : '12px 12px 12px 4px'};font-size:12px;line-height:1.4;word-break:break-word;">${esc(m.text)}</div>
-                        <div style="font-size:10px;color:var(--text2);margin-top:2px;text-align:${isMine ? 'right' : 'left'};">${t}</div>
+                return `<div style="display:flex;gap:7px;align-items:flex-start;margin-bottom:8px;${isMine ? 'flex-direction:row-reverse;' : ''}">
+                    <div style="flex-shrink:0;cursor:pointer;" onclick="goProfile('${m.user_login}')">${buildAvatarHtml(u, 26, 10)}</div>
+                    <div style="max-width:78%;">
+                        ${!isMine ? `<div style="font-size:10px;color:var(--text2);margin-bottom:3px;font-weight:500;">${esc(m.username)}</div>` : ''}
+                        <div style="background:${isMine ? 'linear-gradient(135deg,#ff6b9d,#c44569)' : 'rgba(255,255,255,0.08)'};color:#fff;padding:7px 11px;border-radius:${isMine ? '14px 14px 4px 14px' : '14px 14px 14px 4px'};font-size:12px;line-height:1.5;word-break:break-word;backdrop-filter:blur(4px);box-shadow:0 2px 8px rgba(0,0,0,0.2);">${esc(m.text)}</div>
+                        <div style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:3px;text-align:${isMine ? 'right' : 'left'};">${t}</div>
                     </div>
                 </div>`;
             }).join('');
@@ -3897,53 +3930,58 @@ create table if not exists notifications (
             }
 
             mc.innerHTML = `
-            <!-- Шапка комнаты -->
-            <div class="card" style="margin-bottom:10px;padding:10px 14px;">
+            <!-- Шапка комнаты — стеклянная -->
+            <div style="background:rgba(18,18,26,0.8);backdrop-filter:blur(20px);border:1px solid rgba(255,107,157,0.2);border-radius:16px;padding:12px 16px;margin-bottom:12px;box-shadow:0 4px 20px rgba(0,0,0,0.4);">
                 <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-                    <button onclick="leaveRoom()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2);border-radius:10px;padding:5px 12px;font-size:12px;cursor:pointer;font-family:inherit;">← Выйти</button>
+                    <button onclick="leaveRoom()" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);color:var(--text2);border-radius:10px;padding:6px 14px;font-size:12px;cursor:pointer;font-family:inherit;transition:all 0.2s;" onmouseover="this.style.background='rgba(255,71,87,0.15)';this.style.color='#ff4757'" onmouseout="this.style.background='rgba(255,255,255,0.06)';this.style.color='var(--text2)'">← Выйти</button>
                     <div style="flex:1;min-width:0;">
                         <div style="font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(room.title)}</div>
-                        ${room.anime_title ? `<div style="font-size:11px;color:var(--blue);">📺 ${esc(room.anime_title)}</div>` : ''}
+                        ${room.anime_title ? `<div style="font-size:11px;color:var(--blue);margin-top:1px;">📺 ${esc(room.anime_title)}</div>` : ''}
                     </div>
-                    ${isOwner ? `<button onclick="openSetVideoModal()" class="btn btn-outline btn-sm">📎 Видео</button>` : ''}
-                    <span style="font-size:11px;color:var(--green);">🟢 ${(members || []).length} онлайн</span>
+                    <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+                        <span style="font-size:11px;padding:3px 10px;border-radius:20px;background:rgba(46,213,115,0.12);color:var(--green);border:1px solid rgba(46,213,115,0.25);">🟢 ${(members || []).length} онлайн</span>
+                        ${isOwner ? `<button onclick="openSetVideoModal()" style="background:rgba(77,201,246,0.12);border:1px solid rgba(77,201,246,0.3);color:var(--blue);border-radius:10px;padding:5px 12px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;">📎 Видео</button>` : ''}
+                        ${isOwner ? `<span style="font-size:10px;padding:2px 8px;background:linear-gradient(90deg,#ff6b9d22,#4dc9f622);border:1px solid rgba(255,107,157,0.3);color:var(--pink);border-radius:8px;font-weight:600;">👑 Создатель</span>` : ''}
+                    </div>
                 </div>
             </div>
 
-            <!-- Основной контент: видео + сайдбар -->
-            <div style="display:grid;grid-template-columns:1fr 280px;gap:10px;align-items:start;" id="roomGrid">
+            <!-- Основной грид: видео + сайдбар -->
+            <div style="display:grid;grid-template-columns:1fr 300px;gap:12px;align-items:start;" id="roomGrid">
 
-                <!-- Левая часть: видео + управление -->
-                <div>
-                    <div class="card" style="padding:10px;">
+                <!-- Левая: видео + управление -->
+                <div style="display:flex;flex-direction:column;gap:10px;">
+                    <div style="background:rgba(10,10,15,0.9);border:1px solid rgba(255,255,255,0.07);border-radius:16px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.6);">
                         ${videoHtml}
-                        ${isOwner && room.video_url && !room.video_url.includes('embed') && !room.video_url.includes('youtube') ? `
-                        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
-                            <button onclick="ownerPlay()" style="flex:1;background:var(--green);color:#000;border:none;border-radius:10px;padding:8px;font-size:13px;font-weight:700;cursor:pointer;">▶ Play для всех</button>
-                            <button onclick="ownerPause()" style="flex:1;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:8px;font-size:13px;cursor:pointer;">⏸ Пауза для всех</button>
-                        </div>` : ''}
                     </div>
+                    ${isOwner && room.video_url && !room.video_url.includes('embed') && !room.video_url.includes('youtube') ? `
+                    <div style="display:flex;gap:8px;">
+                        <button onclick="ownerPlay()" style="flex:1;background:linear-gradient(135deg,#2ed573,#1e8449);color:#fff;border:none;border-radius:12px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 4px 15px rgba(46,213,115,0.3);transition:transform 0.2s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">▶ Play для всех</button>
+                        <button onclick="ownerPause()" style="flex:1;background:rgba(255,255,255,0.06);color:var(--text);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:10px;font-size:13px;cursor:pointer;font-family:inherit;transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.06)'">⏸ Пауза для всех</button>
+                    </div>` : ''}
                 </div>
 
-                <!-- Правая часть: участники + чат -->
+                <!-- Правая: участники + чат -->
                 <div style="display:flex;flex-direction:column;gap:10px;">
+
                     <!-- Участники -->
-                    <div class="card" style="padding:10px;">
-                        <div style="font-weight:600;font-size:12px;margin-bottom:8px;color:var(--text2);">👥 Участники (${(members || []).length})</div>
-                        <div id="roomMembers">${membersHtml || '<span style="color:var(--text2);font-size:12px;">Никого нет</span>'}</div>
+                    <div style="background:rgba(18,18,26,0.8);backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.07);border-radius:16px;padding:12px;">
+                        <div style="font-weight:600;font-size:12px;margin-bottom:10px;color:var(--text2);letter-spacing:0.5px;text-transform:uppercase;">👥 Участники — ${(members || []).length}</div>
+                        <div id="roomMembers" style="display:flex;flex-direction:column;gap:2px;">${membersHtml || '<span style="color:var(--text2);font-size:12px;">Никого нет</span>'}</div>
                     </div>
 
-                    <!-- Чат комнаты -->
-                    <div class="card" style="padding:10px;display:flex;flex-direction:column;height:340px;">
-                        <div style="font-weight:600;font-size:12px;margin-bottom:8px;color:var(--text2);">💬 Чат комнаты</div>
-                        <div id="roomChat" style="flex:1;overflow-y:auto;margin-bottom:8px;padding-right:2px;">
-                            ${chatHtml || '<div style="color:var(--text2);font-size:12px;text-align:center;padding:20px 0;">Сообщений пока нет</div>'}
+                    <!-- Чат -->
+                    <div style="background:rgba(18,18,26,0.8);backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.07);border-radius:16px;padding:12px;display:flex;flex-direction:column;height:360px;">
+                        <div style="font-weight:600;font-size:12px;margin-bottom:10px;color:var(--text2);letter-spacing:0.5px;text-transform:uppercase;">💬 Чат комнаты</div>
+                        <div id="roomChat" style="flex:1;overflow-y:auto;margin-bottom:8px;padding-right:4px;scrollbar-width:thin;scrollbar-color:rgba(255,107,157,0.3) transparent;">
+                            ${chatHtml || '<div style="color:var(--text2);font-size:12px;text-align:center;padding:20px 0;opacity:0.6;">Начни общение! 💬</div>'}
                         </div>
-                        <div style="display:flex;gap:6px;">
-                            <input id="roomChatInput" placeholder="Сообщение..." 
-                                style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:7px 12px;color:var(--text);font-size:12px;font-family:inherit;"
+                        <div style="display:flex;gap:6px;align-items:center;">
+                            <input id="roomChatInput" placeholder="Написать..." 
+                                style="flex:1;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:20px;padding:8px 14px;color:var(--text);font-size:12px;font-family:inherit;outline:none;transition:border 0.2s;"
+                                onfocus="this.style.borderColor='rgba(255,107,157,0.5)'" onblur="this.style.borderColor='rgba(255,255,255,0.1)'"
                                 onkeydown="if(event.key==='Enter')sendRoomChat()">
-                            <button onclick="sendRoomChat()" style="background:var(--pink);border:none;color:#fff;border-radius:12px;padding:7px 12px;cursor:pointer;font-size:13px;">→</button>
+                            <button onclick="sendRoomChat()" style="background:linear-gradient(135deg,var(--pink),#c44569);border:none;color:#fff;border-radius:50%;width:34px;height:34px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 10px rgba(255,107,157,0.4);transition:transform 0.2s;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">→</button>
                         </div>
                     </div>
                 </div>
@@ -3957,8 +3995,13 @@ create table if not exists notifications (
 
             // Адаптив для мобильного
             const grid = document.getElementById('roomGrid');
-            if (grid && window.innerWidth < 700) {
-                grid.style.gridTemplateColumns = '1fr';
+            if (grid) {
+                if (window.innerWidth < 700) {
+                    grid.style.gridTemplateColumns = '1fr';
+                }
+                window.addEventListener('resize', () => {
+                    grid.style.gridTemplateColumns = window.innerWidth < 700 ? '1fr' : '1fr 300px';
+                }, { once: true });
             }
 
             // Синхронизация видео для зрителей
@@ -3989,7 +4032,7 @@ create table if not exists notifications (
         async function setRoomVideo() {
             const url = document.getElementById('newVideoUrl')?.value.trim();
             if (!url) return toast('Введи ссылку!', true);
-            await SB.from('anime_rooms').update({ video_url: url, current_time: 0, is_playing: false, updated_at: new Date().toISOString() }).eq('id', currentRoom);
+            await SB.from('anime_rooms').update({ video_url: url, playback_time: 0, is_playing: false, updated_at: new Date().toISOString() }).eq('id', currentRoom);
             document.getElementById('setVideoModal')?.remove();
             toast('✅ Видео обновлено!');
             await renderRoomInside();
@@ -3998,7 +4041,7 @@ create table if not exists notifications (
         // Синхронизация состояния видео (владелец → все)
         async function syncVideoState(video) {
             await SB.from('anime_rooms').update({
-                current_time: video.currentTime,
+                playback_time: video.currentTime,
                 is_playing: !video.paused,
                 updated_at: new Date().toISOString()
             }).eq('id', currentRoom);
@@ -4007,7 +4050,7 @@ create table if not exists notifications (
         async function syncVideoPlaying(isPlaying, time) {
             await SB.from('anime_rooms').update({
                 is_playing: isPlaying,
-                current_time: time,
+                playback_time: time,
                 updated_at: new Date().toISOString()
             }).eq('id', currentRoom);
         }
@@ -4024,8 +4067,8 @@ create table if not exists notifications (
         function applyVideoState(room) {
             const video = document.getElementById('roomVideo');
             if (!video || video.tagName !== 'VIDEO') return;
-            const diff = Math.abs(video.currentTime - room.current_time);
-            if (diff > 2) video.currentTime = room.current_time;
+            const diff = Math.abs(video.currentTime - room.playback_time);
+            if (diff > 2) video.currentTime = room.playback_time;
             if (room.is_playing && video.paused) video.play().catch(() => {});
             if (!room.is_playing && !video.paused) video.pause();
         }
@@ -4047,16 +4090,19 @@ create table if not exists notifications (
         function appendRoomChatMsg(m) {
             const chatEl = document.getElementById('roomChat');
             if (!chatEl) return;
+            // Remove "no messages" placeholder
+            const placeholder = chatEl.querySelector('div[style*="Начни общение"]');
+            if (placeholder) placeholder.remove();
             const isMine = m.user_login === currentUser.login;
             const u = { login: m.user_login, username: m.username, avatar_url: m.avatar_url };
             const t = new Date(m.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
             const div = document.createElement('div');
-            div.style.cssText = `display:flex;gap:6px;align-items:flex-start;margin-bottom:6px;${isMine ? 'flex-direction:row-reverse;' : ''}`;
-            div.innerHTML = `${buildAvatarHtml(u, 24, 10)}
-                <div style="max-width:75%;">
-                    ${!isMine ? `<div style="font-size:10px;color:var(--text2);margin-bottom:2px;">${esc(m.username)}</div>` : ''}
-                    <div style="background:${isMine ? 'var(--pink)' : 'var(--surface2)'};color:${isMine ? '#fff' : 'var(--text)'};padding:6px 10px;border-radius:${isMine ? '12px 12px 4px 12px' : '12px 12px 12px 4px'};font-size:12px;line-height:1.4;word-break:break-word;">${esc(m.text)}</div>
-                    <div style="font-size:10px;color:var(--text2);margin-top:2px;text-align:${isMine ? 'right' : 'left'};">${t}</div>
+            div.style.cssText = `display:flex;gap:7px;align-items:flex-start;margin-bottom:8px;${isMine ? 'flex-direction:row-reverse;' : ''}`;
+            div.innerHTML = `<div style="flex-shrink:0;cursor:pointer;" onclick="goProfile('${m.user_login}')">${buildAvatarHtml(u, 26, 10)}</div>
+                <div style="max-width:78%;">
+                    ${!isMine ? `<div style="font-size:10px;color:var(--text2);margin-bottom:3px;font-weight:500;">${esc(m.username)}</div>` : ''}
+                    <div style="background:${isMine ? 'linear-gradient(135deg,#ff6b9d,#c44569)' : 'rgba(255,255,255,0.08)'};color:#fff;padding:7px 11px;border-radius:${isMine ? '14px 14px 4px 14px' : '14px 14px 14px 4px'};font-size:12px;line-height:1.5;word-break:break-word;backdrop-filter:blur(4px);">${esc(m.text)}</div>
+                    <div style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:3px;text-align:${isMine ? 'right' : 'left'};">${t}</div>
                 </div>`;
             chatEl.appendChild(div);
             const atBottom = chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight < 80;
