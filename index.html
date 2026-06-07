@@ -60,6 +60,12 @@ alter table comments add column if not exists reply_to_username text;
 -- 8. Голосовые в комментариях
 alter table comments add column if not exists audio_url text;
 
+-- 9. Поле from_login в notifications (кто отправил уведомление)
+alter table notifications add column if not exists from_login text;
+
+-- 10. Биография пользователя
+alter table users add column if not exists bio text;
+
 ===========================================
 -->
 <html lang="ru">
@@ -563,7 +569,8 @@ alter table comments add column if not exists audio_url text;
                 <button class="nav-tab ${page === 'feed' ? 'active' : ''}" onclick="goHome()">📱 Лента</button>
                 <button class="nav-tab ${page === 'people' ? 'active' : ''}" onclick="goPeople()">👥 Люди</button>
                 <button class="nav-tab ${page === 'messages' ? 'active' : ''}" onclick="goMessages()">💬 Сообщения</button>
-                <button class="nav-tab ${page === 'profile' ? 'active' : ''}" onclick="goProfile('${currentUser.login}')">👤 Профиль</button>`;
+                <button class="nav-tab ${page === 'profile' ? 'active' : ''}" onclick="goProfile('${currentUser.login}')">👤 Профиль</button>
+                <button class="nav-tab ${page === 'settings' ? 'active' : ''}" onclick="goSettings()">⚙️ Настройки</button>`;
 
             // Админ-панель верификации (только для разработчиков)
             if (DEVS.includes((currentUser.login || '').toLowerCase())) {
@@ -578,6 +585,7 @@ alter table comments add column if not exists audio_url text;
             else if (page === 'messages') await renderMessages();
             else if (page === 'people') await renderPeople();
             else if (page === 'verification') await renderVerification();
+            else if (page === 'settings') await renderSettings();
         }
         async function renderFeed() {
             const mc = document.getElementById('mainContainer');
@@ -659,29 +667,44 @@ alter table comments add column if not exists audio_url text;
                 </div>
                 <div class="comments-box" id="comments-${post.id}">
                     <div id="comments-list-${post.id}" style="color:var(--text2);font-size:12px;padding:4px 0 6px;">Загрузка...</div>
-                    ${currentUser ? `<div id="ci-wrap-${post.id}" style="margin-top:6px;">
-                        <div style="display:flex;align-items:center;gap:7px;">
-                            <input id="ci-${post.id}" placeholder="Написать комментарий..."
-                                data-reply-id="" data-reply-name=""
-                                style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:15px;padding:6px 12px;color:var(--text);font-size:12px;font-family:inherit;"
-                                onkeydown="if(event.key==='Enter')addComment('${post.id}')">
-                            <button class="btn btn-outline btn-sm" onclick="addComment('${post.id}')">→</button>
-                        </div>
-                    </div>` : ''}
+                    ${currentUser ? `<div id="ci-wrap-${post.id}" style="margin-top:6px;"></div>` : ''}
                 </div>
             </div>`;
         }
         async function loadPostStats(postId) {
             const { count: likes } = await SB.from('likes').select('*', { count: 'exact', head: true }).eq('post_id', postId);
-            const { data: myLike } = await SB.from('likes').select('*').eq('post_id', postId).eq('user_login', currentUser?.login).single();
+            const { data: myLike } = currentUser
+                ? await SB.from('likes').select('*').eq('post_id', postId).eq('user_login', currentUser?.login).single()
+                : { data: null };
             const { count: coms } = await SB.from('comments').select('*', { count: 'exact', head: true }).eq('post_id', postId);
             const { data: comments } = await SB.from('comments').select('*').eq('post_id', postId).order('created_at', { ascending: true });
             const lc = document.getElementById('lc-' + postId);
             if (lc) lc.textContent = likes || 0;
             const cc = document.getElementById('cc-' + postId);
             if (cc) cc.textContent = coms || 0;
+
+            // Восстанавливаем состояние кнопки лайка
             const btn = document.querySelector(`#post-${postId} .act`);
-            if (btn && myLike) btn.classList.add('liked');
+            if (btn) {
+                if (myLike) {
+                    btn.classList.add('liked');
+                } else {
+                    btn.classList.remove('liked');
+                }
+                // Отключаем кнопку если это свой пост
+                const postEl = document.getElementById('post-' + postId);
+                // Проверяем по data-атрибуту или через сравнение loginов (кнопка удаления есть только у своих постов)
+                const isOwnPost = postEl && postEl.querySelector('.btn-msg[style*="danger"]');
+                if (isOwnPost && currentUser) {
+                    btn.style.opacity = '0.4';
+                    btn.style.cursor = 'not-allowed';
+                    btn.title = 'Нельзя лайкать свои посты';
+                } else if (currentUser) {
+                    btn.style.opacity = '';
+                    btn.style.cursor = '';
+                    btn.title = '';
+                }
+            }
             const box = document.getElementById('comments-' + postId);
             if (!box) return;
 
@@ -716,17 +739,29 @@ alter table comments add column if not exists audio_url text;
                 } else {
                     const roots = comments.filter(c => !c.reply_to_id);
                     const repliesMap = {};
+                    const commentIds = new Set(comments.map(c => c.id));
                     comments.filter(c => c.reply_to_id).forEach(c => {
-                        if (!repliesMap[c.reply_to_id]) repliesMap[c.reply_to_id] = [];
-                        repliesMap[c.reply_to_id].push(c);
+                        // Если родитель существует — вложенный, иначе показываем как root
+                        if (commentIds.has(c.reply_to_id)) {
+                            if (!repliesMap[c.reply_to_id]) repliesMap[c.reply_to_id] = [];
+                            repliesMap[c.reply_to_id].push(c);
+                        } else {
+                            roots.push(c); // Родитель удалён — показываем как обычный
+                        }
                     });
+                    // Сортируем roots по времени
+                    roots.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
                     function renderComment(c, isReply) {
                         const u = userMap[c.user_login] || { login: c.user_login, username: c.username, avatar_url: null };
                         const t = new Date(c.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
                         const likeCount = commentLikesMap[c.id] || 0;
                         const iLiked = myCommentLikes.has(c.id);
-                        const nested = (repliesMap[c.id] || []).map(r => renderComment(r, true)).join('');
+                        const replies = repliesMap[c.id] || [];
+                        const nestedHtml = replies.map(r => renderComment(r, true)).join('');
+                        const hasReplies = replies.length > 0;
+                        const repliesId = `replies-${c.id}`;
+
                         const likeBtn = currentUser
                             ? `<button id="cl-btn-${c.id}" onclick="toggleCommentLike('${c.id}','${postId}')"
                                 style="background:none;border:none;font-size:11px;cursor:pointer;padding:0;font-family:inherit;display:inline-flex;align-items:center;gap:3px;color:${iLiked ? 'var(--pink)' : 'var(--text2)'};"
@@ -734,31 +769,41 @@ alter table comments add column if not exists audio_url text;
                         const replyBtn = currentUser
                             ? `<button onclick="setReplyTarget('${postId}','${c.id}','${c.username.replace(/'/g,"\\'")}')
                                 " style="background:none;border:none;color:var(--text2);font-size:11px;cursor:pointer;padding:0;font-family:inherit;margin-left:8px;">↩ Ответить</button>` : '';
-                        return `<div style="display:flex;align-items:flex-start;gap:7px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04);${isReply ? 'padding-left:32px;' : ''}">
+                        const showRepliesBtn = hasReplies && !isReply
+                            ? `<button onclick="toggleReplies('${repliesId}',this)" style="background:none;border:none;color:var(--blue);font-size:11px;cursor:pointer;padding:0;font-family:inherit;margin-left:8px;">▼ ${replies.length} ${replies.length === 1 ? 'ответ' : replies.length < 5 ? 'ответа' : 'ответов'}</button>` : '';
+
+                        return `<div style="display:flex;align-items:flex-start;gap:7px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);${isReply ? 'padding-left:28px;border-left:2px solid rgba(77,201,246,0.25);margin-left:14px;padding-top:5px;' : ''}">
                             <div onclick="goProfile('${c.user_login}')" style="cursor:pointer;flex-shrink:0;">${buildAvatarHtml(u, isReply ? 22 : 26, isReply ? 9 : 11)}</div>
                             <div style="flex:1;min-width:0;">
                                 <div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;">
                                     <span style="font-weight:600;font-size:12px;cursor:pointer;color:var(--text);" onclick="goProfile('${c.user_login}')">${esc(c.username)}</span>
-                                    ${c.reply_to_username ? `<span style="font-size:11px;color:var(--blue);">→ @${esc(c.reply_to_username)}</span>` : ''}
+                                    ${c.reply_to_username ? `<span style="font-size:11px;color:var(--blue);background:rgba(77,201,246,0.1);padding:1px 6px;border-radius:6px;">↩ @${esc(c.reply_to_username)}</span>` : ''}
                                     <span style="font-size:10px;color:var(--text2);">${t}</span>
                                 </div>
                                 ${c.audio_url ? `<audio controls src="${c.audio_url}" style="max-width:100%;height:32px;margin-top:4px;border-radius:20px;display:block;" preload="metadata"></audio>` : ''}
-                                ${c.text ? `<div style="font-size:12px;line-height:1.4;margin-top:2px;word-break:break-word;">${esc(c.text)}</div>` : ''}
-                                <div style="display:flex;align-items:center;margin-top:3px;">${likeBtn}${replyBtn}</div>
+                                ${c.text ? `<div style="font-size:12px;line-height:1.5;margin-top:3px;word-break:break-word;">${esc(c.text)}</div>` : ''}
+                                <div style="display:flex;align-items:center;margin-top:4px;flex-wrap:wrap;gap:4px;">${likeBtn}${replyBtn}${showRepliesBtn}</div>
                             </div>
-                        </div>${nested}`;
+                        </div>${hasReplies && !isReply ? `<div id="${repliesId}" style="display:none;">${nestedHtml}</div>` : (isReply ? nestedHtml : '')}`;
                     }
                     listEl.innerHTML = roots.map(c => renderComment(c, false)).join('');
                 }
             }
 
             // Поле ввода
-            if (currentUser && !document.getElementById('ci-wrap-' + postId)) {
-                const inputDiv = document.createElement('div');
-                inputDiv.id = 'ci-wrap-' + postId;
-                inputDiv.style.cssText = 'margin-top:6px;';
-                inputDiv.innerHTML = buildCommentInput(postId);
-                box.appendChild(inputDiv);
+            if (currentUser) {
+                const existingWrap = document.getElementById('ci-wrap-' + postId);
+                if (existingWrap && !existingWrap.innerHTML.trim()) {
+                    // Пустой контейнер (из buildPostCard) — заполняем
+                    existingWrap.innerHTML = buildCommentInput(postId);
+                } else if (!existingWrap) {
+                    // Контейнера нет совсем (старый путь) — создаём
+                    const inputDiv = document.createElement('div');
+                    inputDiv.id = 'ci-wrap-' + postId;
+                    inputDiv.style.cssText = 'margin-top:6px;';
+                    inputDiv.innerHTML = buildCommentInput(postId);
+                    box.appendChild(inputDiv);
+                }
             }
         }
 
@@ -795,6 +840,14 @@ alter table comments add column if not exists audio_url text;
             if (wrap) wrap.innerHTML = buildCommentInput(postId);
         }
 
+        function toggleReplies(id, btn) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const isOpen = el.style.display !== 'none';
+            el.style.display = isOpen ? 'none' : 'block';
+            if (btn) btn.innerHTML = btn.innerHTML.replace(isOpen ? '▲' : '▼', isOpen ? '▼' : '▲');
+        }
+
         async function toggleCommentLike(commentId, postId) {
             if (!currentUser) return toast('Войдите!', true);
             const { data: exist } = await SB.from('comment_likes')
@@ -815,7 +868,7 @@ alter table comments add column if not exists audio_url text;
                     await SB.from('notifications').insert([{
                         user_login: com.user_login, type: 'like',
                         text: `❤️ ${currentUser.username} лайкнул(а) твой комментарий: "${preview}${(com.text||'').length > 40 ? '...' : ''}"`,
-                        is_read: false
+                        from_login: currentUser?.login || null, is_read: false
                     }]);
                 }
             }
@@ -1187,7 +1240,7 @@ alter table comments add column if not exists audio_url text;
                 user_login: chatWith.login,
                 type: 'message',
                 text: `✉️ ${currentUser.username} написал(а) тебе: "${msgPreview}"`,
-                is_read: false
+                from_login: currentUser?.login || null, is_read: false
             }]);
         }
         function closeChat() {
@@ -1301,7 +1354,7 @@ alter table comments add column if not exists audio_url text;
             if (voiceContext === 'chat') {
                 // Отправка в чат
                 if (!chatWith) return;
-                await SB.from('messages').insert([{
+                const { error: voiceErr } = await SB.from('messages').insert([{
                     sender_login: currentUser.login,
                     sender_username: currentUser.username,
                     receiver_login: chatWith.login,
@@ -1309,28 +1362,77 @@ alter table comments add column if not exists audio_url text;
                     text: '',
                     audio_url: audioUrl
                 }]);
-                toast('✅ Голосовое отправлено!');
+                if (voiceErr) {
+                    toast('❌ Ошибка отправки: ' + voiceErr.message, true);
+                } else {
+                    // Показываем голосовое мгновенно в чате
+                    const container = document.getElementById('chatMessages');
+                    if (container) {
+                        const t = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+                        const div = document.createElement('div');
+                        div.className = 'msg-bubble msg-sent';
+                        div.innerHTML = `<audio controls src="${audioUrl}" style="max-width:100%;border-radius:8px;"></audio>
+                            <div style="font-size:9px;opacity:0.6;margin-top:4px;">${t} ✓</div>`;
+                        container.appendChild(div);
+                        container.scrollTop = container.scrollHeight;
+                    }
+                    toast('✅ Голосовое отправлено!');
+                    // Уведомление получателю
+                    await SB.from('notifications').insert([{
+                        user_login: chatWith.login,
+                        type: 'message',
+                        text: `🎙️ ${currentUser.username} отправил(а) тебе голосовое сообщение`,
+                        from_login: currentUser?.login || null, is_read: false
+                    }]);
+                }
             } else if (voiceContext?.postId) {
                 // Отправка в комментарий
                 const postId = voiceContext.postId;
-                await SB.from('comments').insert([{
+                const replyInput = document.getElementById('ci-' + postId);
+                const replyToId = replyInput?.dataset.replyId ? parseInt(replyInput.dataset.replyId) : null;
+                const replyToUsername = replyInput?.dataset.replyName || null;
+
+                const commentData = {
                     post_id: parseInt(postId),
                     user_login: currentUser.login,
                     username: currentUser.username,
                     text: '',
                     audio_url: audioUrl
-                }]);
-                // Уведомление автору поста
-                const { data: post } = await SB.from('posts').select('user_login').eq('id', postId).single();
-                if (post && post.user_login !== currentUser.login) {
-                    await SB.from('notifications').insert([{
-                        user_login: post.user_login, type: 'comment',
-                        text: `🎙️ ${currentUser.username} оставил(а) голосовой комментарий [post_id:${postId}]`,
-                        is_read: false
-                    }]);
+                };
+                if (replyToId) {
+                    commentData.reply_to_id = replyToId;
+                    commentData.reply_to_username = replyToUsername;
                 }
-                await loadPostStats(postId);
-                toast('✅ Голосовой комментарий отправлен!');
+
+                const { error: comErr } = await SB.from('comments').insert([commentData]);
+                if (comErr) {
+                    toast('❌ Ошибка: ' + comErr.message, true);
+                } else {
+                    // Уведомление автору поста
+                    const { data: postData } = await SB.from('posts').select('user_login').eq('id', postId).single();
+                    if (postData && postData.user_login !== currentUser.login) {
+                        await SB.from('notifications').insert([{
+                            user_login: postData.user_login, type: 'comment',
+                            text: `🎙️ ${currentUser.username} оставил(а) голосовой комментарий [post_id:${postId}]`,
+                            from_login: currentUser?.login || null, is_read: false
+                        }]);
+                    }
+                    // Уведомление тому на кого ответили
+                    if (replyToId && replyToUsername) {
+                        const { data: repliedCom } = await SB.from('comments').select('user_login').eq('id', replyToId).single();
+                        if (repliedCom && repliedCom.user_login !== currentUser.login) {
+                            await SB.from('notifications').insert([{
+                                user_login: repliedCom.user_login, type: 'comment',
+                                text: `🎙️ ${currentUser.username} ответил(а) тебе голосовым [post_id:${postId}]`,
+                                from_login: currentUser?.login || null, is_read: false
+                            }]);
+                        }
+                    }
+                    // Сбрасываем режим ответа и перезагружаем комментарии
+                    clearReplyTarget(postId);
+                    await loadPostStats(postId);
+                    toast('✅ Голосовой комментарий отправлен!');
+                }
             }
             voiceContext = null;
         }
@@ -1522,6 +1624,8 @@ alter table comments add column if not exists audio_url text;
                         </div>
                         <div style="font-size:10px; color:#888; margin-top:3px;">${(user.reputation || 0) % 100}/100 до LVL ${(user.level || 1) + 1}</div>
                     </div>
+
+                    ${user.bio ? `<div style="margin-top:10px;font-size:13px;color:var(--text2);line-height:1.5;max-width:360px;margin-left:auto;margin-right:auto;padding:8px 14px;background:var(--surface2);border-radius:10px;border:1px solid var(--border);">${esc(user.bio)}</div>` : ''}
 
                     <!-- Статистика профиля карточками -->
                     <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:14px; max-width:400px; margin-left:auto; margin-right:auto;">
@@ -1759,6 +1863,7 @@ alter table comments add column if not exists audio_url text;
                     user_login: f.follower_login,
                     type: 'new_post',
                     text: notifText,
+                    from_login: currentUser?.login || null,
                     is_read: false
                 }));
                 await SB.from('notifications').insert(notifs);
@@ -1808,7 +1913,7 @@ alter table comments add column if not exists audio_url text;
                 user_login: targetLogin,
                 type: 'follow',
                 text: `👤 ${currentUser.username} подписался(ась) на тебя`,
-                is_read: false
+                from_login: currentUser?.login || null, is_read: false
             }]);
 
             await renderProfile(); // обновляем профиль
@@ -1863,7 +1968,7 @@ alter table comments add column if not exists audio_url text;
                     user_login: devLogin,
                     type: 'verification_request',
                     text: `💎 ${currentUser.username} (@${currentUser.login}) хочет верификацию`,
-                    is_read: false
+                    from_login: currentUser?.login || null, is_read: false
                 }]);
             }
             loadNotifications();
@@ -1954,7 +2059,7 @@ create table if not exists notifications (
                 user_login: userLogin,
                 type: 'verification_approved',
                 text: '✅ Твоя заявка на верификацию одобрена! Ты теперь верифицирован 💎',
-                is_read: false
+                from_login: currentUser?.login || null, is_read: false
             }]);
 
             toast('Заявка одобрена! Пользователь получил 💎');
@@ -1975,7 +2080,7 @@ create table if not exists notifications (
                     user_login: userLogin,
                     type: 'verification_rejected',
                     text: '❌ Твоя заявка на верификацию была отклонена',
-                    is_read: false
+                    from_login: currentUser?.login || null, is_read: false
                 }]);
             }
 
@@ -2162,23 +2267,37 @@ create table if not exists notifications (
         }
         async function toggleLike(postId) {
             if (!currentUser) return toast('Войдите!', true);
+
+            // Проверяем — не ставим лайк себе
+            const { data: post } = await SB.from('posts').select('user_login, content').eq('id', postId).single();
+            if (post && post.user_login === currentUser.login) {
+                return toast('Нельзя лайкать свои посты 😅', true);
+            }
+
             const { data: exist } = await SB.from('likes').select('*').eq('post_id', postId).eq('user_login', currentUser.login).single();
 
             if (exist) {
                 await SB.from('likes').delete().eq('id', exist.id);
+                // Обновляем кнопку сразу
+                const btn = document.querySelector(`#post-${postId} .act`);
+                if (btn) btn.classList.remove('liked');
             } else {
-                await SB.from('likes').insert([{ post_id: parseInt(postId), user_login: currentUser.login }]);
+                const { error: insErr } = await SB.from('likes').insert([{ post_id: parseInt(postId), user_login: currentUser.login }]);
+                if (insErr) return toast('Ошибка: ' + insErr.message, true);
+
+                // Обновляем кнопку сразу
+                const btn = document.querySelector(`#post-${postId} .act`);
+                if (btn) btn.classList.add('liked');
 
                 // Даём +5 репутации автору поста + уведомление
-                const { data: post } = await SB.from('posts').select('user_login, content').eq('id', postId).single();
-                if (post && post.user_login !== currentUser.login) {
+                if (post) {
                     await addReputation(post.user_login, 5, 'лайк');
                     const preview = (post.content || '').substring(0, 40);
                     await SB.from('notifications').insert([{
                         user_login: post.user_login,
                         type: 'like',
                         text: `❤️ ${currentUser.username} лайкнул(а) твой пост${preview ? ': "' + preview + (post.content.length > 40 ? '..."' : '"') : ''} [post_id:${postId}]`,
-                        is_read: false
+                        from_login: currentUser?.login || null, is_read: false
                     }]);
                 }
             }
@@ -2207,7 +2326,15 @@ create table if not exists notifications (
                 insertData.reply_to_id = replyToId;
                 insertData.reply_to_username = replyToUsername;
             }
-            await SB.from('comments').insert([insertData]);
+
+            // Очищаем поле сразу
+            input.value = '';
+
+            const { error: comErr } = await SB.from('comments').insert([insertData]);
+            if (comErr) {
+                toast('❌ Ошибка: ' + comErr.message, true);
+                return;
+            }
 
             // Репутация + уведомление автору поста
             const { data: post } = await SB.from('posts').select('user_login, content').eq('id', postId).single();
@@ -2218,7 +2345,7 @@ create table if not exists notifications (
                         user_login: post.user_login,
                         type: 'comment',
                         text: `💬 ${currentUser.username} прокомментировал(а): "${text.substring(0,50)}${text.length>50?'...':''}" [post_id:${postId}]`,
-                        is_read: false
+                        from_login: currentUser?.login || null, is_read: false
                     }]);
                 }
             }
@@ -2231,12 +2358,12 @@ create table if not exists notifications (
                         user_login: repliedCom.user_login,
                         type: 'comment',
                         text: `↩️ ${currentUser.username} ответил(а) тебе: "${text.substring(0,50)}${text.length>50?'...':''}" [post_id:${postId}]`,
-                        is_read: false
+                        from_login: currentUser?.login || null, is_read: false
                     }]);
                 }
             }
 
-            // Сброс поля + сброс режима ответа
+            // Сброс режима ответа + перезагрузка комментариев (они будут видны сразу)
             clearReplyTarget(postId);
             await loadPostStats(postId);
         }
@@ -2317,7 +2444,7 @@ create table if not exists notifications (
                 user_login: login,
                 type: 'ban',
                 text: `🔨 Ты заблокирован. Причина: "${reason}"`,
-                is_read: false
+                from_login: currentUser?.login || null, is_read: false
             }]);
             document.getElementById('banModal')?.remove();
             toast('🔨 Пользователь заблокирован');
@@ -2333,7 +2460,7 @@ create table if not exists notifications (
                 user_login: login,
                 type: 'unban',
                 text: '✅ Ты разблокирован! Добро пожаловать обратно.',
-                is_read: false
+                from_login: currentUser?.login || null, is_read: false
             }]);
             toast('✅ Пользователь разбанен');
             if (page === 'profile') await renderProfile();
@@ -2363,6 +2490,150 @@ create table if not exists notifications (
         function goPeople() { page = 'people'; renderAll(); renderPage(); }
 
         function goVerification() { page = 'verification'; renderAll(); renderPage(); }
+        function goSettings() { page = 'settings'; renderAll(); renderPage(); }
+
+        async function renderSettings() {
+            if (!currentUser) return;
+            const mc = document.getElementById('mainContainer');
+
+            // Загружаем свежие данные
+            const { data: me } = await SB.from('users').select('*').eq('login', currentUser.login).single();
+            if (me) currentUser = { ...currentUser, ...me };
+
+            mc.innerHTML = `
+            <div class="card">
+                <h2 style="margin-bottom:18px;font-size:18px;">⚙️ Настройки аккаунта</h2>
+
+                <!-- Аватар -->
+                <div style="text-align:center;margin-bottom:20px;">
+                    ${buildAvatarHtml(currentUser, 72, 28)}
+                    <div style="margin-top:10px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+                        <button class="btn btn-outline btn-sm" style="border-color:var(--pink);color:var(--pink);" onclick="openAvatarGallery()">🖼️ Сменить аватар</button>
+                        <button class="btn btn-outline btn-sm" style="border-color:var(--blue);color:var(--blue);" onclick="openCoverGallery()">🌅 Сменить обложку</button>
+                    </div>
+                </div>
+
+                <!-- Имя пользователя -->
+                <div style="margin-bottom:16px;">
+                    <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:6px;">👤 Отображаемое имя (юзернейм)</label>
+                    <div style="display:flex;gap:8px;">
+                        <input id="settingsUsername" value="${esc(currentUser.username || '')}" placeholder="Твоё имя..."
+                            style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:inherit;font-size:14px;">
+                        <button class="btn btn-pink btn-sm" onclick="saveUsername()">Сохранить</button>
+                    </div>
+                    <div style="font-size:11px;color:var(--text2);margin-top:4px;">Логин: <strong>@${esc(currentUser.login)}</strong> (нельзя изменить)</div>
+                </div>
+
+                <!-- Биография -->
+                <div style="margin-bottom:16px;">
+                    <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:6px;">📝 О себе (биография)</label>
+                    <textarea id="settingsBio" placeholder="Расскажи о себе..." style="min-height:80px;margin-bottom:0;">${esc(currentUser.bio || '')}</textarea>
+                    <button class="btn btn-outline btn-sm" style="margin-top:6px;" onclick="saveBio()">Сохранить биографию</button>
+                </div>
+
+                <!-- Смена пароля -->
+                <div style="margin-bottom:16px;padding-top:16px;border-top:1px solid var(--border);">
+                    <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:8px;">🔒 Сменить пароль</label>
+                    <input id="settingsOldPass" type="password" placeholder="Старый пароль"
+                        style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:inherit;font-size:13px;margin-bottom:8px;">
+                    <input id="settingsNewPass" type="password" placeholder="Новый пароль (мин. 3 символа)"
+                        style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:inherit;font-size:13px;margin-bottom:8px;">
+                    <input id="settingsConfPass" type="password" placeholder="Повтори новый пароль"
+                        style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:inherit;font-size:13px;margin-bottom:8px;">
+                    <button class="btn btn-outline btn-sm" onclick="changePassword()">Изменить пароль</button>
+                </div>
+
+                <!-- Верификация -->
+                <div style="padding-top:16px;border-top:1px solid var(--border);margin-bottom:16px;">
+                    <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:8px;">💎 Верификация</label>
+                    ${currentUser.is_verified
+                        ? `<div style="display:flex;align-items:center;gap:8px;color:var(--green);font-size:13px;font-weight:600;">
+                            <span style="font-size:20px;filter:drop-shadow(0 0 6px #4dc9f6);">💎</span> Ты верифицирован!
+                           </div>`
+                        : `<div style="font-size:12px;color:var(--text2);margin-bottom:8px;">Верификация подтверждает что аккаунт настоящий</div>
+                           <button class="btn btn-outline btn-sm" style="border-color:#4dc9f6;color:#4dc9f6;" onclick="requestVerification()">💎 Запросить верификацию</button>`
+                    }
+                </div>
+
+                <!-- Репутация и уровень -->
+                <div style="padding-top:16px;border-top:1px solid var(--border);margin-bottom:16px;">
+                    <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:10px;">⭐ Репутация и уровень</label>
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                        <div style="background:linear-gradient(90deg,#ff6b9d,#4dc9f6);color:#fff;padding:8px 18px;border-radius:20px;font-weight:700;font-size:16px;box-shadow:0 0 12px rgba(255,107,157,0.4);">LVL ${currentUser.level || 1}</div>
+                        <div style="background:var(--surface2);padding:8px 16px;border-radius:20px;font-size:14px;color:#ccc;">Репутация: <strong style="color:#4dc9f6;">${currentUser.reputation || 0}</strong></div>
+                    </div>
+                    <div style="margin-top:10px;max-width:280px;">
+                        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:4px;">
+                            <span>Прогресс до LVL ${(currentUser.level || 1) + 1}</span>
+                            <span>${(currentUser.reputation || 0) % 100}/100</span>
+                        </div>
+                        <div style="height:8px;background:var(--surface2);border-radius:4px;overflow:hidden;">
+                            <div style="height:100%;width:${(currentUser.reputation || 0) % 100}%;background:linear-gradient(90deg,#ff6b9d,#4dc9f6);transition:width 0.5s;border-radius:4px;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Опасная зона -->
+                <div style="padding-top:16px;border-top:1px solid var(--danger);">
+                    <label style="font-size:12px;color:var(--danger);display:block;margin-bottom:8px;">🚨 Опасная зона</label>
+                    <button class="btn btn-sm" style="background:transparent;border:1px solid var(--danger);color:var(--danger);" onclick="confirmDeleteAccount()">🗑️ Удалить аккаунт</button>
+                </div>
+            </div>`;
+        }
+
+        async function saveUsername() {
+            const val = document.getElementById('settingsUsername')?.value.trim();
+            if (!val || val.length < 2) return toast('Имя слишком короткое!', true);
+            if (val.length > 30) return toast('Имя слишком длинное (макс 30)!', true);
+            const { error } = await SB.from('users').update({ username: val }).eq('login', currentUser.login);
+            if (error) return toast('Ошибка: ' + error.message, true);
+            currentUser.username = val;
+            localStorage.setItem('niji_user', JSON.stringify(currentUser));
+            toast('✅ Имя обновлено!');
+            renderAll();
+        }
+
+        async function saveBio() {
+            const val = document.getElementById('settingsBio')?.value.trim();
+            if (val && val.length > 300) return toast('Биография слишком длинная (макс 300)!', true);
+            const { error } = await SB.from('users').update({ bio: val || null }).eq('login', currentUser.login);
+            if (error) return toast('Ошибка: ' + error.message, true);
+            currentUser.bio = val;
+            toast('✅ Биография сохранена!');
+        }
+
+        async function changePassword() {
+            const oldPass = document.getElementById('settingsOldPass')?.value;
+            const newPass = document.getElementById('settingsNewPass')?.value;
+            const confPass = document.getElementById('settingsConfPass')?.value;
+            if (!oldPass || !newPass || !confPass) return toast('Заполни все поля!', true);
+            if (newPass.length < 3) return toast('Новый пароль слишком короткий!', true);
+            if (newPass !== confPass) return toast('Пароли не совпадают!', true);
+            // Проверяем старый пароль
+            const { data: user } = await SB.from('users').select('password').eq('login', currentUser.login).single();
+            if (!user || user.password !== oldPass) return toast('Неверный старый пароль!', true);
+            const { error } = await SB.from('users').update({ password: newPass }).eq('login', currentUser.login);
+            if (error) return toast('Ошибка: ' + error.message, true);
+            document.getElementById('settingsOldPass').value = '';
+            document.getElementById('settingsNewPass').value = '';
+            document.getElementById('settingsConfPass').value = '';
+            toast('✅ Пароль изменён!');
+        }
+
+        async function confirmDeleteAccount() {
+            const confirmed = prompt(`Это действие необратимо! Введи свой логин (${currentUser.login}) для подтверждения:`);
+            if (confirmed !== currentUser.login) return toast('Логин не совпадает. Удаление отменено.', true);
+            // Удаляем посты, комментарии, лайки, подписки
+            await SB.from('posts').delete().eq('user_login', currentUser.login);
+            await SB.from('comments').delete().eq('user_login', currentUser.login);
+            await SB.from('likes').delete().eq('user_login', currentUser.login);
+            await SB.from('follows').delete().eq('follower_login', currentUser.login);
+            await SB.from('follows').delete().eq('following_login', currentUser.login);
+            await SB.from('notifications').delete().eq('user_login', currentUser.login);
+            await SB.from('users').delete().eq('login', currentUser.login);
+            toast('Аккаунт удалён. Пока! 👋');
+            setTimeout(() => logout(), 1500);
+        }
         async function goProfile(login) {
             if (!currentUser) return toast('Войдите!', true);
             if (login !== currentUser.login) await SB.from('guests').insert([{ host_login: login, guest_login: currentUser.login }]);
@@ -3068,22 +3339,44 @@ create table if not exists notifications (
                 list.innerHTML = '<div style="padding:30px 20px; text-align:center; color:var(--text2); font-size:13px;">🔔 Нет уведомлений</div>';
                 return;
             }
+
+            // Загружаем данные отправителей (from_login)
+            const actorLogins = [...new Set((notifs || []).map(n => n.from_login).filter(Boolean))];
+            let actorMap = {};
+            if (actorLogins.length > 0) {
+                const { data: actors } = await SB.from('users').select('login, username, avatar_url, level').in('login', actorLogins);
+                const avatarCache = JSON.parse(localStorage.getItem('niji_avatars') || '{}');
+                (actors || []).forEach(u => {
+                    if (!u.avatar_url && avatarCache[u.login]) u.avatar_url = avatarCache[u.login];
+                    actorMap[u.login] = u;
+                });
+            }
+
             list.innerHTML = notifs.map(n => {
                 const t = new Date(n.created_at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
                 const icon = NOTIF_ICONS[n.type] || '🔔';
-                // Извлекаем post_id из текста если есть
                 const postMatch = n.text.match(/\[post_id:(\d+)\]/);
                 const postId = postMatch ? postMatch[1] : null;
-                // Убираем маркер из отображаемого текста
                 const displayText = n.text.replace(/\s*\[post_id:\d+\]/, '');
                 const clickAction = postId
                     ? `markNotifRead('${n.id}', this); goToPost('${postId}')`
-                    : `markNotifRead('${n.id}', this)`;
-                return `<div class="notif-item ${n.is_read ? '' : 'unread'}" onclick="${clickAction}">
-                    <div class="notif-icon">${icon}</div>
+                    : n.from_login ? `markNotifRead('${n.id}', this); goProfile('${n.from_login}')` : `markNotifRead('${n.id}', this)`;
+
+                // Аватарка отправителя
+                const actor = n.from_login ? actorMap[n.from_login] : null;
+                let avatarHtml = '';
+                if (actor) {
+                    avatarHtml = buildAvatarHtml(actor, 36, 14);
+                } else {
+                    avatarHtml = `<div style="width:36px;height:36px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">${icon}</div>`;
+                }
+
+                return `<div class="notif-item ${n.is_read ? '' : 'unread'}" onclick="${clickAction}" style="gap:10px;">
+                    <div style="flex-shrink:0;">${avatarHtml}</div>
                     <div class="notif-body">
-                        <div style="word-break:break-word;">${esc(displayText)}</div>
-                        ${postId ? `<div style="font-size:10px;color:var(--blue);margin-top:2px;">Нажми, чтобы перейти к посту →</div>` : ''}
+                        ${actor ? `<div style="font-weight:600;font-size:12px;color:var(--text);margin-bottom:2px;">${esc(actor.username)} <span style="font-size:10px;background:linear-gradient(90deg,#ff6b9d,#4dc9f6);color:#fff;padding:1px 5px;border-radius:6px;">LVL ${actor.level||1}</span></div>` : ''}
+                        <div style="word-break:break-word;font-size:12px;">${esc(displayText)}</div>
+                        ${postId ? `<div style="font-size:10px;color:var(--blue);margin-top:2px;">→ Перейти к посту</div>` : ''}
                         <div class="notif-time">${t}</div>
                     </div>
                     ${!n.is_read ? '<div class="notif-dot"></div>' : ''}
@@ -3112,12 +3405,23 @@ create table if not exists notifications (
         let notifPollInterval = null;
         let lastNotifCount = 0;
         let lastNotifIds = new Set();
+        let notifSystemReady = false; // флаг: начальная загрузка завершена
 
         function subscribeNotifications() {
             if (!currentUser) return;
 
-            // Сразу грузим
-            loadNotifications();
+            // Сначала грузим существующие уведомления и запоминаем их ID
+            // чтобы при первом poll не показывать тосты за старые уведомления
+            SB.from('notifications')
+                .select('id')
+                .eq('user_login', currentUser.login)
+                .order('created_at', { ascending: false })
+                .limit(100)
+                .then(({ data: existing }) => {
+                    (existing || []).forEach(n => lastNotifIds.add(String(n.id)));
+                    notifSystemReady = true;
+                    loadNotifications();
+                });
 
             // Realtime через Supabase Postgres Changes с фильтром по user_login
             try {
@@ -3130,20 +3434,21 @@ create table if not exists notifications (
                         filter: `user_login=eq.${currentUser.login}`
                     }, payload => {
                         if (payload.new?.user_login !== currentUser.login) return;
-                        loadNotifications();
-                        const n = payload.new;
-                        const icon = NOTIF_ICONS[n.type] || '🔔';
-                        const displayText = (n.text || 'Новое уведомление').replace(/\s*\[post_id:\d+\]/, '');
-                        showNotifToast(icon + ' ' + displayText);
-                        lastNotifIds.add(String(n.id));
+                        // Показываем тост только если это реально новое уведомление
+                        if (!lastNotifIds.has(String(payload.new.id))) {
+                            loadNotifications();
+                            const n = payload.new;
+                            const icon = NOTIF_ICONS[n.type] || '🔔';
+                            const displayText = (n.text || 'Новое уведомление').replace(/\s*\[post_id:\d+\]/, '');
+                            showNotifToast(icon + ' ' + displayText);
+                            lastNotifIds.add(String(n.id));
+                        }
                     })
                     .subscribe(status => {
                         if (status === 'SUBSCRIBED') {
-                            // Realtime работает — ставим polling как редкий резерв (каждые 15 сек)
                             if (notifPollInterval) clearInterval(notifPollInterval);
                             notifPollInterval = setInterval(() => pollNewNotifs(), 15000);
                         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-                            // Realtime не работает — падаем на частый polling
                             startFallbackPolling();
                         }
                     });
@@ -3158,7 +3463,7 @@ create table if not exists notifications (
         }
 
         async function pollNewNotifs() {
-            if (!currentUser) return;
+            if (!currentUser || !notifSystemReady) return;
             const { data: notifs } = await SB.from('notifications')
                 .select('*')
                 .eq('user_login', currentUser.login)
