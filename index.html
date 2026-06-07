@@ -33,6 +33,10 @@ create policy "anyone can delete messages" on messages for delete using (true);
 -- 3. Колонка avatar_url в users (если нет)
 alter table users add column if not exists avatar_url text;
 
+-- 4. БАН: колонка is_banned в users
+alter table users add column if not exists is_banned boolean default false;
+alter table users add column if not exists ban_reason text;
+
 ===========================================
 -->
 <html lang="ru">
@@ -86,8 +90,7 @@ alter table users add column if not exists avatar_url text;
         .act{background:none;border:none;color:var(--text2);cursor:pointer;font-size:12px;font-family:inherit}
         .act:hover{color:var(--text)}
         .act.liked{color:var(--pink)}
-        .comments-box{display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
-        .comments-box.open{display:block}
+        .comments-box{display:block;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
         .comment{font-size:12px;padding:3px 0}
         .comment-input{display:flex;gap:6px;margin-top:6px}
         .comment-input input{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:15px;padding:6px 12px;color:var(--text);font-size:11px;font-family:inherit}
@@ -167,29 +170,42 @@ alter table users add column if not exists avatar_url text;
             position: absolute;
             top: 46px;
             right: 0;
-            width: 320px;
-            max-height: 420px;
+            width: 340px;
+            max-height: 480px;
             overflow-y: auto;
             background: var(--surface);
             border: 1px solid var(--border);
-            border-radius: 14px;
+            border-radius: 16px;
             z-index: 300;
-            box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.6);
             display: none;
+            animation: notifSlideIn 0.18s ease;
+        }
+        @keyframes notifSlideIn {
+            from { opacity:0; transform:translateY(-8px) scale(0.97); }
+            to   { opacity:1; transform:translateY(0) scale(1); }
         }
         .notif-panel.show { display: block; }
         .notif-panel::-webkit-scrollbar { width: 4px; }
         .notif-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
         .notif-item {
-            padding: 12px 14px;
+            padding: 11px 14px;
             border-bottom: 1px solid var(--border);
             font-size: 13px;
             line-height: 1.4;
-            transition: background 0.2s;
+            transition: background 0.15s;
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            cursor: pointer;
         }
         .notif-item:last-child { border-bottom: none; }
-        .notif-item.unread { background: rgba(255,107,157,0.07); }
+        .notif-item.unread { background: rgba(255,107,157,0.06); border-left: 3px solid var(--pink); }
+        .notif-item:not(.unread) { border-left: 3px solid transparent; }
         .notif-item:hover { background: var(--surface2); }
+        .notif-icon { font-size: 20px; flex-shrink: 0; margin-top: 1px; line-height: 1; }
+        .notif-body { flex: 1; min-width: 0; }
+        .notif-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pink); flex-shrink: 0; margin-top: 5px; }
         .notif-time { font-size: 10px; color: var(--text2); margin-top: 3px; }
 
         /* Стили для картинок в постах */
@@ -370,6 +386,17 @@ alter table users add column if not exists avatar_url text;
             if (saved) {
                 const { data } = await SB.from('users').select('*').eq('login', saved).single();
                 if (data) {
+                    // Проверяем бан
+                    if (data.is_banned) {
+                        localStorage.removeItem('niji_session');
+                        document.body.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0a0a0f;flex-direction:column;gap:16px;text-align:center;padding:20px;">
+                            <div style="font-size:64px;">🔨</div>
+                            <h2 style="color:#ff4757;font-size:22px;">Ты заблокирован</h2>
+                            <div style="color:#8888aa;font-size:14px;max-width:300px;">Причина: <strong style="color:#e0e0e0;">${data.ban_reason || 'нарушение правил'}</strong></div>
+                            <div style="color:#555;font-size:12px;">Обратись к администрации</div>
+                        </div>`;
+                        return;
+                    }
                     currentUser = data;
 
                     // Если в БД нет avatar_url — берём из localStorage
@@ -395,6 +422,8 @@ alter table users add column if not exists avatar_url text;
             renderAll();
             await renderPage();
             await stats();
+
+            if (currentUser) subscribeNotifications();
 
             // Обновляем last_seen каждые 60 секунд пока вкладка открыта
             if (currentUser) {
@@ -565,10 +594,6 @@ alter table users add column if not exists avatar_url text;
             }
             mc.innerHTML = html;
 
-            // Загружаем реакции для всех постов
-            if (posts) {
-                posts.forEach(p => loadPostReactions(p.id));
-            }
             // Загружаем статистику для всех постов после рендера
             if (posts) {
                 posts.forEach(p => loadPostStats(p.id));
@@ -603,9 +628,17 @@ alter table users add column if not exists avatar_url text;
                 
                 <div class="actions">
                     <button class="act" onclick="toggleLike('${post.id}')">❤️ <span id="lc-${post.id}">...</span></button>
-                    <button class="act" onclick="toggleComments('${post.id}')">💬 <span id="cc-${post.id}">...</span></button>
+                    <button class="act" style="cursor:default;">💬 <span id="cc-${post.id}">...</span></button>
                 </div>
-                <div class="comments-box" id="comments-${post.id}"></div>
+                <div class="comments-box" id="comments-${post.id}">
+                    <div id="comments-list-${post.id}" style="color:var(--text2);font-size:12px;padding:4px 0 6px;">Загрузка...</div>
+                    ${currentUser ? `<div class="comment-input" style="margin-top:6px;display:flex;align-items:center;gap:7px;">
+                        <input id="ci-${post.id}" placeholder="Написать комментарий..."
+                            style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:15px;padding:6px 12px;color:var(--text);font-size:12px;font-family:inherit;"
+                            onkeydown="if(event.key==='Enter')addComment('${post.id}')">
+                        <button class="btn btn-outline btn-sm" onclick="addComment('${post.id}')">→</button>
+                    </div>` : ''}
+                </div>
             </div>`;
         }
         async function loadPostStats(postId) {
@@ -634,30 +667,37 @@ alter table users add column if not exists avatar_url text;
                 });
             }
 
-            let commentsHtml = (comments || []).map(c => {
-                const u = userMap[c.user_login] || { login: c.user_login, username: c.username, avatar_url: null };
-                const t = new Date(c.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-                return `<div class="comment" style="display:flex;align-items:flex-start;gap:7px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
-                    <div onclick="goProfile('${c.user_login}')" style="cursor:pointer;flex-shrink:0;">${buildAvatarHtml(u, 26, 11)}</div>
-                    <div style="flex:1;min-width:0;">
-                        <span style="font-weight:600;font-size:12px;cursor:pointer;color:var(--text);" onclick="goProfile('${c.user_login}')">${esc(c.username)}</span>
-                        <span style="font-size:10px;color:var(--text2);margin-left:5px;">${t}</span>
-                        <div style="font-size:12px;line-height:1.4;margin-top:2px;word-break:break-word;">${esc(c.text)}</div>
-                    </div>
-                </div>`;
-            }).join('');
-
-            const inputHtml = currentUser
-                ? `<div class="comment-input" style="margin-top:8px;display:flex;align-items:center;gap:7px;">
-                    <div style="flex-shrink:0;">${buildAvatarHtml(currentUser, 26, 11)}</div>
-                    <input id="ci-${postId}" placeholder="Написать комментарий..." 
-                        style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:15px;padding:6px 12px;color:var(--text);font-size:12px;font-family:inherit;"
-                        onkeydown="if(event.key==='Enter')addComment('${postId}')">
-                    <button class="btn btn-outline btn-sm" onclick="addComment('${postId}')">→</button>
-                  </div>`
-                : '';
-
-            box.innerHTML = commentsHtml + inputHtml;
+            // Рендерим только список комментариев, поле ввода уже встроено в buildPostCard
+            const listEl = document.getElementById('comments-list-' + postId);
+            if (listEl) {
+                if (!comments || comments.length === 0) {
+                    listEl.innerHTML = '<span style="color:var(--text2);font-size:12px;">Комментариев пока нет</span>';
+                } else {
+                    listEl.innerHTML = comments.map(c => {
+                        const u = userMap[c.user_login] || { login: c.user_login, username: c.username, avatar_url: null };
+                        const t = new Date(c.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+                        return `<div style="display:flex;align-items:flex-start;gap:7px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
+                            <div onclick="goProfile('${c.user_login}')" style="cursor:pointer;flex-shrink:0;">${buildAvatarHtml(u, 26, 11)}</div>
+                            <div style="flex:1;min-width:0;">
+                                <span style="font-weight:600;font-size:12px;cursor:pointer;color:var(--text);" onclick="goProfile('${c.user_login}')">${esc(c.username)}</span>
+                                <span style="font-size:10px;color:var(--text2);margin-left:5px;">${t}</span>
+                                <div style="font-size:12px;line-height:1.4;margin-top:2px;word-break:break-word;">${esc(c.text)}</div>
+                            </div>
+                        </div>`;
+                    }).join('');
+                }
+            }
+            // Убедимся что поле ввода есть (если его ещё нет — добавляем)
+            if (currentUser && !document.getElementById('ci-' + postId)) {
+                const inputDiv = document.createElement('div');
+                inputDiv.className = 'comment-input';
+                inputDiv.style.cssText = 'margin-top:6px;display:flex;align-items:center;gap:7px;';
+                inputDiv.innerHTML = `<input id="ci-${postId}" placeholder="Написать комментарий..."
+                    style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:15px;padding:6px 12px;color:var(--text);font-size:12px;font-family:inherit;"
+                    onkeydown="if(event.key==='Enter')addComment('${postId}')">
+                    <button class="btn btn-outline btn-sm" onclick="addComment('${postId}')">→</button>`;
+                box.appendChild(inputDiv);
+            }
         }
         async function renderMessages() {
             const mc = document.getElementById('mainContainer');
@@ -1173,8 +1213,13 @@ alter table users add column if not exists avatar_url text;
                                 </div>
                                 <div style="font-size:10px;color:#555;margin-top:1px;">рег. ${regDate}</div>
                             </div>
-                            <div style="text-align:right;font-size:12px;color:#4dc9f6;font-weight:600;flex-shrink:0;">
-                                ★ ${u.reputation || 0}
+                            <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+                                <div style="text-align:right;font-size:12px;color:#4dc9f6;font-weight:600;">★ ${u.reputation || 0}</div>
+                                ${currentUser && DEVS.includes(currentUser.login.toLowerCase()) && u.login !== currentUser.login
+                                    ? (u.is_banned
+                                        ? `<button onclick="event.stopPropagation();unbanUser('${u.login}')" style="background:#2ed573;color:#000;border:none;border-radius:8px;padding:3px 8px;font-size:10px;font-weight:700;cursor:pointer;">✅</button>`
+                                        : `<button onclick="event.stopPropagation();openBanModal('${u.login}','${u.username}')" style="background:#ff4757;color:#fff;border:none;border-radius:8px;padding:3px 8px;font-size:10px;font-weight:700;cursor:pointer;">🔨</button>`)
+                                    : ''}
                             </div>
                         </div>
                     `;
@@ -1190,6 +1235,17 @@ alter table users add column if not exists avatar_url text;
             const isMe = currentUser && currentUser.login === profileLogin;
             const { count: posts } = await SB.from('posts').select('*', { count: 'exact', head: true }).eq('user_login', profileLogin);
             const { count: guests } = await SB.from('guests').select('*', { count: 'exact', head: true }).eq('host_login', profileLogin);
+
+            // Суммарные лайки на всех постах
+            let total_likes = 0;
+            try {
+                const { data: userPosts } = await SB.from('posts').select('id').eq('user_login', profileLogin);
+                if (userPosts && userPosts.length > 0) {
+                    const ids = userPosts.map(p => p.id);
+                    const { count: lc } = await SB.from('likes').select('*', { count: 'exact', head: true }).in('post_id', ids);
+                    total_likes = lc || 0;
+                }
+            } catch(e) {}
 
             // Подписчики и подписки
             const { count: followers_count } = await SB.from('follows').select('*', { count: 'exact', head: true }).eq('following_login', profileLogin);
@@ -1261,10 +1317,24 @@ alter table users add column if not exists avatar_url text;
                         <div style="font-size:10px; color:#888; margin-top:3px;">${(user.reputation || 0) % 100}/100 до LVL ${(user.level || 1) + 1}</div>
                     </div>
 
-                    <div style="font-size:13px;margin-top:10px;">
-                        📝 ${posts||0} постов &nbsp;&nbsp; 
-                        👥 <strong>${user.followers_count || 0}</strong> подписчиков &nbsp;&nbsp; 
-                        👤 <strong>${user.following_count || 0}</strong> подписок
+                    <!-- Статистика профиля карточками -->
+                    <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:14px; max-width:400px; margin-left:auto; margin-right:auto;">
+                        <div style="background:var(--surface2); border:1px solid var(--border); border-radius:12px; padding:10px 6px; text-align:center;">
+                            <div style="font-size:18px; font-weight:700; color:var(--text);">${posts||0}</div>
+                            <div style="font-size:10px; color:var(--text2); margin-top:2px;">📝 постов</div>
+                        </div>
+                        <div style="background:var(--surface2); border:1px solid var(--border); border-radius:12px; padding:10px 6px; text-align:center; cursor:pointer;" onclick="showFollowers('${profileLogin}')">
+                            <div style="font-size:18px; font-weight:700; color:var(--text);">${user.followers_count || 0}</div>
+                            <div style="font-size:10px; color:var(--text2); margin-top:2px;">👥 подписчики</div>
+                        </div>
+                        <div style="background:var(--surface2); border:1px solid var(--border); border-radius:12px; padding:10px 6px; text-align:center; cursor:pointer;" onclick="showFollowing('${profileLogin}')">
+                            <div style="font-size:18px; font-weight:700; color:var(--text);">${user.following_count || 0}</div>
+                            <div style="font-size:10px; color:var(--text2); margin-top:2px;">👤 подписки</div>
+                        </div>
+                        <div style="background:var(--surface2); border:1px solid var(--border); border-radius:12px; padding:10px 6px; text-align:center;">
+                            <div style="font-size:18px; font-weight:700; color:var(--pink);">${total_likes}</div>
+                            <div style="font-size:10px; color:var(--text2); margin-top:2px;">❤️ лайков</div>
+                        </div>
                     </div>
 
                     ${!isMe ? `
@@ -1290,6 +1360,14 @@ alter table users add column if not exists avatar_url text;
                             <button class="btn btn-outline" style="border-color:var(--blue); color:var(--blue);" onclick="openCoverGallery()">
                                 🖼️ Обложка
                             </button>
+                        </div>
+                    ` : ''}
+                    ${!isMe && currentUser && DEVS.includes(currentUser.login.toLowerCase()) ? `
+                        <div style="margin-top:10px;">
+                            ${user.is_banned
+                                ? `<button class="btn btn-outline" style="border-color:#2ed573;color:#2ed573;" onclick="unbanUser('${profileLogin}')">✅ Разбанить</button>`
+                                : `<button class="btn" style="background:#ff4757;color:#fff;" onclick="openBanModal('${profileLogin}','${esc(user.username)}')">🔨 Заблокировать</button>`
+                            }
                         </div>
                     ` : ''}
                     </div>
@@ -1854,10 +1932,17 @@ create table if not exists notifications (
             } else {
                 await SB.from('likes').insert([{ post_id: parseInt(postId), user_login: currentUser.login }]);
 
-                // Даём +5 репутации автору поста
-                const { data: post } = await SB.from('posts').select('user_login').eq('id', postId).single();
-                if (post) {
+                // Даём +5 репутации автору поста + уведомление
+                const { data: post } = await SB.from('posts').select('user_login, content').eq('id', postId).single();
+                if (post && post.user_login !== currentUser.login) {
                     await addReputation(post.user_login, 5, 'лайк');
+                    const preview = (post.content || '').substring(0, 40);
+                    await SB.from('notifications').insert([{
+                        user_login: post.user_login,
+                        type: 'like',
+                        text: `❤️ ${currentUser.username} лайкнул(а) твой пост${preview ? ': "' + preview + (post.content.length > 40 ? '..."' : '"') : ''}`,
+                        is_read: false
+                    }]);
                 }
             }
             await loadPostStats(postId);
@@ -1876,16 +1961,124 @@ create table if not exists notifications (
                 username: currentUser.username, text: text
             }]);
 
-            // Даём +2 репутации автору поста за комментарий
-            const { data: post } = await SB.from('posts').select('user_login').eq('id', postId).single();
+            // Даём +2 репутации + уведомление
+            const { data: post } = await SB.from('posts').select('user_login, content').eq('id', postId).single();
             if (post) {
                 await addReputation(post.user_login, 2, 'комментарий');
+                if (post.user_login !== currentUser.login) {
+                    await SB.from('notifications').insert([{
+                        user_login: post.user_login,
+                        type: 'comment',
+                        text: `💬 ${currentUser.username} прокомментировал(а): "${text.substring(0,50)}${text.length>50?'...':''}"`,
+                        is_read: false
+                    }]);
+                }
             }
 
             input.value = '';
             await loadPostStats(postId);
             document.getElementById('comments-' + postId)?.classList.add('open');
         }
+
+        // === Показать подписчиков / подписки ===
+        async function showFollowers(login) {
+            const { data: rows } = await SB.from('follows').select('follower_login').eq('following_login', login);
+            if (!rows || rows.length === 0) return toast('Подписчиков пока нет');
+            const logins = rows.map(r => r.follower_login);
+            const { data: users } = await SB.from('users').select('login, username, avatar_url, level, is_verified').in('login', logins);
+            showUserListModal('👥 Подписчики', users || []);
+        }
+        async function showFollowing(login) {
+            const { data: rows } = await SB.from('follows').select('following_login').eq('follower_login', login);
+            if (!rows || rows.length === 0) return toast('Подписок пока нет');
+            const logins = rows.map(r => r.following_login);
+            const { data: users } = await SB.from('users').select('login, username, avatar_url, level, is_verified').in('login', logins);
+            showUserListModal('👤 Подписки', users || []);
+        }
+        function showUserListModal(title, users) {
+            const existing = document.getElementById('userListModal');
+            if (existing) existing.remove();
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.id = 'userListModal';
+            const items = users.map(u => `
+                <div class="dialog-row" onclick="document.getElementById('userListModal').remove(); goProfile('${u.login}')">
+                    ${buildAvatarHtml(u, 40, 16)}
+                    <div class="dialog-info">
+                        <div class="dialog-name">
+                            ${esc(u.username)}
+                            ${u.is_verified ? '<span style="margin-left:4px;font-size:14px;filter:drop-shadow(0 0 4px #4dc9f6);">💎</span>' : ''}
+                            <span style="font-size:9px;background:linear-gradient(90deg,#ff6b9d,#4dc9f6);color:#fff;padding:1px 6px;border-radius:8px;margin-left:5px;font-weight:600;">LVL ${u.level||1}</span>
+                        </div>
+                        <div style="font-size:11px;color:var(--text2);">@${esc(u.login)}</div>
+                    </div>
+                </div>`).join('');
+            modal.innerHTML = `<div class="modal" style="max-width:400px;">
+                <h2 style="margin-bottom:14px;">${title} (${users.length})</h2>
+                <div style="max-height:360px;overflow-y:auto;">${items || '<div style="text-align:center;padding:20px;color:var(--text2);">Список пуст</div>'}</div>
+                <button class="btn-full" style="margin-top:12px;" onclick="document.getElementById('userListModal').remove()">Закрыть</button>
+            </div>`;
+            document.body.appendChild(modal);
+            modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+        }
+
+
+        // === БАН-СИСТЕМА ===
+        function openBanModal(login, username) {
+            const existing = document.getElementById('banModal');
+            if (existing) existing.remove();
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.id = 'banModal';
+            modal.innerHTML = `
+                <div class="modal" style="max-width:360px;">
+                    <h2 style="color:#ff4757; margin-bottom:4px;">🔨 Заблокировать</h2>
+                    <p style="color:var(--text2);font-size:13px;margin-bottom:14px;">Пользователь: <strong style="color:var(--text);">${esc(username)}</strong> (@${esc(login)})</p>
+                    <input id="banReasonInput" placeholder="Причина бана (обязательно)"
+                        style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;color:var(--text);font-family:inherit;font-size:13px;margin-bottom:12px;">
+                    <div style="display:flex;gap:8px;">
+                        <button onclick="confirmBan('${esc(login)}')" style="flex:1;padding:10px;border-radius:8px;background:#ff4757;color:#fff;border:none;font-weight:700;cursor:pointer;font-family:inherit;font-size:14px;">🔨 Заблокировать</button>
+                        <button onclick="document.getElementById('banModal').remove()" style="flex:0.5;padding:10px;border-radius:8px;background:var(--surface2);color:var(--text);border:1px solid var(--border);cursor:pointer;font-family:inherit;">Отмена</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(modal);
+            modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+            setTimeout(() => document.getElementById('banReasonInput')?.focus(), 100);
+        }
+
+        async function confirmBan(login) {
+            const reason = document.getElementById('banReasonInput')?.value.trim();
+            if (!reason) return toast('Укажи причину бана!', true);
+            const { error } = await SB.from('users').update({ is_banned: true, ban_reason: reason }).eq('login', login);
+            if (error) return toast('Ошибка: ' + error.message, true);
+            // Уведомление забаненному
+            await SB.from('notifications').insert([{
+                user_login: login,
+                type: 'ban',
+                text: `🔨 Ты заблокирован. Причина: "${reason}"`,
+                is_read: false
+            }]);
+            document.getElementById('banModal')?.remove();
+            toast('🔨 Пользователь заблокирован');
+            if (page === 'profile') await renderProfile();
+            else await renderPeople();
+        }
+
+        async function unbanUser(login) {
+            if (!confirm('Разбанить этого пользователя?')) return;
+            const { error } = await SB.from('users').update({ is_banned: false, ban_reason: null }).eq('login', login);
+            if (error) return toast('Ошибка: ' + error.message, true);
+            await SB.from('notifications').insert([{
+                user_login: login,
+                type: 'unban',
+                text: '✅ Ты разблокирован! Добро пожаловать обратно.',
+                is_read: false
+            }]);
+            toast('✅ Пользователь разбанен');
+            if (page === 'profile') await renderProfile();
+            else await renderPeople();
+        }
+
         function goHome() { page = 'feed'; profileLogin = null; renderAll(); renderPage(); }
         function goMessages() { page = 'messages'; renderAll(); renderPage(); }
 
@@ -1917,9 +2110,13 @@ create table if not exists notifications (
             if (isLogin) {
                 const { data, error } = await SB.from('users').select('*').eq('login', login).eq('password', pass).single();
                 if (error || !data) return toast('Неверный логин или пароль', true);
+                if (data.is_banned) {
+                    return toast('🔨 Ты заблокирован: ' + (data.ban_reason || 'нарушение правил'), true);
+                }
                 currentUser = data;
                 localStorage.setItem('niji_session', login);
                 closeAuth();
+                subscribeNotifications();
                 goHome();
                 toast('✅ Добро пожаловать!');
             } else {
@@ -2499,7 +2696,11 @@ create table if not exists notifications (
             });
         }
         // === Система уведомлений ===
-        let notifPollInterval = null;
+        const NOTIF_ICONS = {
+            'like': '❤️', 'comment': '💬', 'follow': '👤',
+            'new_post': '📝', 'message': '✉️',
+            'verification_request': '💎', 'verification_approved': '✅', 'verification_rejected': '❌', 'ban': '🔨', 'unban': '✅'
+        };
 
         async function loadNotifications() {
             if (!currentUser) return;
@@ -2507,7 +2708,7 @@ create table if not exists notifications (
                 .select('*')
                 .eq('user_login', currentUser.login)
                 .order('created_at', { ascending: false })
-                .limit(30);
+                .limit(50);
 
             const unread = (notifs || []).filter(n => !n.is_read).length;
             const badge = document.getElementById('notifBadge');
@@ -2519,16 +2720,55 @@ create table if not exists notifications (
             const list = document.getElementById('notifList');
             if (!list) return;
             if (!notifs || notifs.length === 0) {
-                list.innerHTML = '<div style="padding:20px; text-align:center; color:var(--text2); font-size:13px;">Нет уведомлений</div>';
+                list.innerHTML = '<div style="padding:30px 20px; text-align:center; color:var(--text2); font-size:13px;">🔔 Нет уведомлений</div>';
                 return;
             }
             list.innerHTML = notifs.map(n => {
                 const t = new Date(n.created_at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+                const icon = NOTIF_ICONS[n.type] || '🔔';
                 return `<div class="notif-item ${n.is_read ? '' : 'unread'}" onclick="markNotifRead('${n.id}', this)">
-                    <div>${esc(n.text)}</div>
-                    <div class="notif-time">${t}</div>
+                    <div class="notif-icon">${icon}</div>
+                    <div class="notif-body">
+                        <div style="word-break:break-word;">${esc(n.text)}</div>
+                        <div class="notif-time">${t}</div>
+                    </div>
+                    ${!n.is_read ? '<div class="notif-dot"></div>' : ''}
                 </div>`;
             }).join('');
+        }
+
+        function showNotifToast(text) {
+            let el = document.getElementById('notifPopup');
+            if (!el) {
+                el = document.createElement('div');
+                el.id = 'notifPopup';
+                el.style.cssText = 'position:fixed;top:60px;right:16px;background:var(--surface);border:1px solid var(--pink);border-radius:14px;padding:12px 16px;font-size:13px;z-index:9999;opacity:0;pointer-events:none;transition:opacity 0.25s,transform 0.25s;transform:translateX(20px);max-width:290px;box-shadow:0 6px 24px rgba(0,0,0,0.5);display:flex;align-items:center;gap:10px;';
+                document.body.appendChild(el);
+            }
+            const icon = text.slice(0,2);
+            const msg = text.slice(2).trim();
+            el.innerHTML = `<span style="font-size:20px;flex-shrink:0;">${icon}</span><span style="flex:1;line-height:1.4;">${esc(msg)}</span>`;
+            el.style.opacity = '1';
+            el.style.transform = 'translateX(0)';
+            clearTimeout(el._t);
+            el._t = setTimeout(() => { el.style.opacity = '0'; el.style.transform = 'translateX(20px)'; }, 4000);
+        }
+
+        let notifRealtimeChannel = null;
+        function subscribeNotifications() {
+            if (!currentUser) return;
+            if (notifRealtimeChannel) SB.removeChannel(notifRealtimeChannel);
+            notifRealtimeChannel = SB.channel('notif_' + currentUser.login)
+                .on('postgres_changes', {
+                    event: 'INSERT', schema: 'public', table: 'notifications',
+                    filter: `user_login=eq.${currentUser.login}`
+                }, payload => {
+                    loadNotifications();
+                    const n = payload.new;
+                    const icon = NOTIF_ICONS[n.type] || '🔔';
+                    showNotifToast(icon + ' ' + (n.text || 'Новое уведомление'));
+                })
+                .subscribe();
         }
 
         async function markNotifRead(id, el) {
@@ -2597,8 +2837,8 @@ create table if not exists notifications (
             document.addEventListener(evt, updateActivity, { passive: true })
         );
 
-        // Опрашиваем уведомления каждые 30 секунд
-        setInterval(() => { if (currentUser) loadNotifications(); }, 30000);
+        // Резервный опрос раз в минуту
+        setInterval(() => { if (currentUser) loadNotifications(); }, 60000);
         init();
     </script>
 </body>
