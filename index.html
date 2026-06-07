@@ -1,94 +1,163 @@
-[07.06.2026 21:18] Леонид: <!DOCTYPE html>
-<!--
-=== SUPABASE SQL — выполни в SQL Editor ===
+[07.06.2026 21:23] Леонид: // 1. Улучшенная функция добавления комментария
+async function addComment(postId) {
+    if (!currentUser) return toast('Войдите!', true);
+    
+    const input = document.getElementById('ci-' + postId);
+    if (!input) return;
+    
+    const text = input.value.trim();
+    if (!text) return toast('Напишите текст комментария', true);
 
--- 1. Таблица уведомлений
-create table if not exists notifications (
-  id bigint generated always as identity primary key,
-  user_login text not null,
-  type text,
-  text text,
-  is_read boolean default false,
-  created_at timestamptz default now()
-);
-alter table notifications enable row level security;
-create policy "anyone can insert notifications" on notifications for insert with check (true);
-create policy "users can read own notifications" on notifications for select using (true);
-create policy "users can update own notifications" on notifications for update using (true);
+    const replyToId = input.dataset.replyId ? parseInt(input.dataset.replyId) : null;
+    const replyToUsername = input.dataset.replyName || null;
 
--- 2. RLS для verification_requests (если ещё не настроен)
-alter table verification_requests enable row level security;
-create policy "anyone can insert verification_requests" on verification_requests for insert with check (true);
-create policy "anyone can select verification_requests" on verification_requests for select using (true);
-create policy "anyone can update verification_requests" on verification_requests for update using (true);
+    const insertData = {
+        post_id: parseInt(postId),
+        user_login: currentUser.login,
+        username: currentUser.username,
+        text: text
+    };
 
--- 3. RLS для messages
--- ВАЖНО: добавь колонку для фото если ещё нет:
-alter table messages add column if not exists image_url text;
-alter table messages add column if not exists audio_url text;  -- Добавлено для ГС в чате
-alter table messages enable row level security;
-create policy "anyone can insert messages" on messages for insert with check (true);
-create policy "anyone can select messages" on messages for select using (true);
-create policy "anyone can delete messages" on messages for delete using (true);
+    if (replyToId) {
+        insertData.reply_to_id = replyToId;
+        insertData.reply_to_username = replyToUsername;
+    }
 
--- 3. Колонка avatar_url в users (если нет)
-alter table users add column if not exists avatar_url text;
+    const { error } = await SB.from('comments').insert([insertData]);
 
--- 4. БАН: колонка is_banned в users
-alter table users add column if not exists is_banned boolean default false;
-alter table users add column if not exists ban_reason text;
+    if (error) {
+        console.error(error);
+        return toast('Ошибка отправки: ' + error.message, true);
+    }
 
--- 5. REALTIME для уведомлений (выполни чтобы уведомления приходили мгновенно)
-alter publication supabase_realtime add table notifications;
+    // Уведомления
+    const { data: post } = await SB.from('posts').select('user_login').eq('id', postId).single();
+    if (post && post.user_login !== currentUser.login) {
+        await SB.from('notifications').insert([{
+            user_login: post.user_login,
+            type: 'comment',
+            text: 💬 ${currentUser.username} \( {replyToId ? 'ответил(а)' : 'прокомментировал(а)'}: " \){text.substring(0,60)}${text.length > 60 ? '...' : ''}",
+            is_read: false
+        }]);
+    }
 
--- 6. Лайки на комментарии
-create table if not exists comment_likes (
-  id bigint generated always as identity primary key,
-  comment_id bigint not null,
-  user_login text not null,
-  created_at timestamptz default now(),
-  unique(comment_id, user_login)
-);
-alter table comment_likes enable row level security;
-create policy "anyone can insert comment_likes" on comment_likes for insert with check (true);
-create policy "anyone can select comment_likes" on comment_likes for select using (true);
-create policy "anyone can delete comment_likes" on comment_likes for delete using (true);
+    // Если ответ — уведомляем автора родительского комментария
+    if (replyToId) {
+        const { data: parentComment } = await SB.from('comments').select('user_login').eq('id', replyToId).single();
+        if (parentComment && parentComment.user_login !== currentUser.login) {
+            await SB.from('notifications').insert([{
+                user_login: parentComment.user_login,
+                type: 'comment',
+                text: ↩️ ${currentUser.username} ответил(а) вам,
+                is_read: false
+            }]);
+        }
+    }
 
--- 7. Ответы на комментарии (добавить колонки в comments)
-alter table comments add column if not exists reply_to_id bigint;
-alter table comments add column if not exists reply_to_username text;
+    // Очищаем поле и сбрасываем режим ответа
+    input.value = '';
+    clearReplyTarget(postId);
 
--- 8. Голосовые в комментариях
-alter table comments add column if not exists audio_url text;
+    toast('✅ Комментарий отправлен');
+    await loadPostStats(postId);   // ← Обновляем комментарии
+}
 
-===========================================
--->
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>にじ Niji</title>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <style>
-        :root{--bg:#0a0a0f;--surface:#12121a;--surface2:#1a1a26;--pink:#ff6b9d;--blue:#4dc9f6;--green:#2ed573;--text:#e0e0e0;--text2:#8888aa;--border:#252535;--danger:#ff4757}
-        *{margin:0;padding:0;box-sizing:border-box}
-        body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
-        .header{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
-        .logo{font-size:22px;font-weight:700;background:linear-gradient(135deg,var(--pink),var(--blue));-webkit-background-clip:text;-webkit-text-fill-color:transparent;cursor:pointer;transition:transform 0.2s ease}
-[07.06.2026 21:18] Леонид: .logo:hover{transform:scale(1.05)}
-        .header-right{display:flex;gap:10px;align-items:center}
-        .btn{padding:8px 16px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;border:none;font-family:inherit;transition:all 0.2s ease}
-        .btn-pink{background:var(--pink);color:#fff}
-        .btn-pink:hover{background:#ff85b0;transform:scale(1.03)}
-        .btn-outline{background:transparent;border:1px solid var(--blue);color:var(--blue)}
-        .btn-sm{padding:5px 12px;font-size:11px}
-        .btn-back{background:var(--surface2);color:var(--text);padding:6px 14px;border-radius:20px;font-size:12px;cursor:pointer;border:1px solid var(--border);font-family:inherit}
-        .btn-msg{background:var(--blue);color:#000;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;border:none;font-family:inherit}
-        .avatar{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px;transition:transform 0.2s ease, box-shadow 0.2s ease}
-        .avatar:hover{transform:scale(1.1);box-shadow:0 0 0 3px rgba(255,107,157,0.2)}
-        .avatar-lg{width:70px;height:70px;border-radius:50%;display:flex;align-items:center;justify-content-center;color:#fff;font-weight:700;font-size:28px;margin:0 auto}
-        .dropdown{position:absolute;top:40px;right:0;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:4px;min-width:150px;display:none;z-index:200}
-        .dropdown.show{display:block}
-        .dropdown button{display:block;width:100%;background:none;border:none;color:var(--text);padding:8px 14px;cursor:pointer;font-size:13px;text-align:left;border-radius:8px;font-family:inherit}
-        .dropdown button:hover{background:var(--surface2)}
-        .user-badge{display:flex;align-items
+// 2. Улучшенный buildCommentInput
+function buildCommentInput(postId, replyToId = null, replyToUsername = null) {
+    const placeholder = replyToUsername 
+        ? Ответить @${replyToUsername}... 
+        : 'Написать комментарий...';
+
+    const replyTag = replyToId ? 
+        <div style="background:rgba(77,201,246,0.1); border:1px solid var(--blue); color:var(--blue); 
+                    padding:6px 10px; border-radius:8px; font-size:12px; margin-bottom:6px; display:flex; align-items:center;">
+            ↩ Ответ для <strong>@${esc(replyToUsername)}</strong>
+            <span onclick="clearReplyTarget('${postId}'); event.stopImmediatePropagation()" 
+                  style="margin-left:auto; cursor:pointer; font-weight:700; padding:0 6px;">✕</span>
+        </div> : '';
+
+    return replyTag + 
+        <div style="display:flex; align-items:center; gap:6px;">
+            <input id="ci-${postId}" 
+                   placeholder="${placeholder}"
+                   data-reply-id="${replyToId || ''}" 
+                   data-reply-name="${replyToUsername || ''}"
+                   style="flex:1; background:var(--surface2); border:1px solid ${replyToId ? 'var(--blue)' : 'var(--border)'}; 
+                          border-radius:999px; padding:8px 14px; font-size:13px;"
+                   onkeydown="if(event.key === 'Enter') { event.preventDefault(); addComment('${postId}'); }">
+            
+            <button onclick="toggleVoiceRecording({postId: '${postId}'})" 
+                    style="background:var(--surface2); border:1px solid var(--border); border-radius:50%; width:38px; height:38px; font-size:18px; flex-shrink:0;">
+                🎤
+            </button>
+            
+            <button class="btn btn-pink btn-sm" onclick="addComment('${postId}')">→</button>
+        </div>;
+}
+[07.06.2026 21:23] Леонид: // 3. setReplyTarget и clearReplyTarget
+function setReplyTarget(postId, commentId, username) {
+    if (!currentUser) return toast('Войдите!', true);
+    
+    const wrap = document.getElementById('ci-wrap-' + postId);
+    if (!wrap) return;
+
+    wrap.innerHTML = buildCommentInput(postId, commentId, username);
+    
+    const input = document.getElementById('ci-' + postId);
+    if (input) {
+        input.focus();
+        input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+}
+
+function clearReplyTarget(postId) {
+    const wrap = document.getElementById('ci-wrap-' + postId);
+    if (wrap) {
+        wrap.innerHTML = buildCommentInput(postId);
+    }
+}
+
+// 4. Улучшенный renderComment (более заметные ответы)
+function renderComment(c, isReply = false) {
+    const u = userMap[c.user_login]  { username: c.username  c.user_login, avatar_url: null };
+    const t = new Date(c.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    
+    const likeCount = commentLikesMap[c.id] || 0;
+    const iLiked = myCommentLikes.has(c.id);
+
+    const nested = (repliesMap[c.id] || []).map(r => renderComment(r, true)).join('');
+
+    return 
+    <div style="display:flex; align-items:flex-start; gap:8px; padding:6px 0; 
+                ${isReply ? 'padding-left:40px; border-left:3px solid var(--blue); margin-left:8px;' : ''}">
+        
+        <div onclick="goProfile('${c.user_login}')" style="cursor:pointer; flex-shrink:0;">
+            ${buildAvatarHtml(u, isReply ? 24 : 28, isReply ? 10 : 12)}
+        </div>
+        
+        <div style="flex:1; min-width:0;">
+            <div style="display:flex; align-items:center; flex-wrap:wrap; gap:5px;">
+                <span style="font-weight:600; cursor:pointer;" onclick="goProfile('\( {c.user_login}')"> \){esc(c.username)}</span>
+                \( {c.reply_to_username ? <span style="color:var(--blue); font-size:12px;">→ @ \){esc(c.reply_to_username)}</span> : ''}
+                <span style="font-size:10px; color:var(--text2);">${t}</span>
+            </div>
+            
+            \( {c.audio_url ? <audio controls src=" \){c.audio_url}" style="width:100%; max-width:300px; margin:6px 0; border-radius:999px;"></audio> : ''}
+            \( {c.text ? <div style="margin-top:3px; line-height:1.4; word-break:break-word;"> \){esc(c.text)}</div> : ''}
+            
+            <div style="margin-top:4px; display:flex; gap:12px; font-size:12px;">
+                ${currentUser ? 
+                    <button onclick="toggleCommentLike('\( {c.id}',' \){postId}')" 
+                            style="background:none; border:none; color:${iLiked ? 'var(--pink)' : 'var(--text2)'}; cursor:pointer;">
+                        ❤️ <span id="cl-\( {c.id}"> \){likeCount || ''}</span>
+                    </button>
+                    <button onclick="setReplyTarget('\( {postId}', ' \){c.id}', '${esc(c.username)}')" 
+                            style="background:none; border:none; color:var(--text2); cursor:pointer;">
+                        ↩ Ответить
+                    </button>
+                 : ''}
+            </div>
+        </div>
+    </div>
+    ${nested};
+}
