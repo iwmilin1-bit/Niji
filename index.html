@@ -216,6 +216,11 @@ alter publication supabase_realtime add table anime_room_chat;
         .modal .btn-link{width:100%;background:none;border:none;color:var(--blue);cursor:pointer;font-size:12px;font-family:inherit;margin-top:4px}
         .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--blue);color:#000;padding:10px 22px;border-radius:25px;font-weight:600;font-size:13px;z-index:9999;opacity:0;pointer-events:none;transition:opacity 0.3s}
         .toast.show{opacity:1}
+        /* Адаптивная сетка комнаты */
+        @media (min-width: 700px) {
+            #roomGrid { display: grid !important; grid-template-columns: 1fr 280px; align-items: start; }
+        }
+
         .toast.error{background:var(--danger);color:#fff}
 
         /* Колокольчик уведомлений */
@@ -3797,10 +3802,15 @@ create table if not exists notifications (
 
         async function deleteRoom(roomId) {
             if (!confirm('Удалить комнату?')) return;
-            await SB.from('anime_room_members').delete().eq('room_id', roomId);
-            await SB.from('anime_room_chat').delete().eq('room_id', roomId);
-            await SB.from('anime_rooms').delete().eq('id', roomId);
-            toast('🗑️ Комната удалена');
+            try {
+                await SB.from('anime_room_members').delete().eq('room_id', roomId);
+                await SB.from('anime_room_chat').delete().eq('room_id', roomId);
+                const { error } = await SB.from('anime_rooms').delete().eq('id', roomId);
+                if (error) return toast('❌ Ошибка удаления: ' + error.message, true);
+                toast('🗑️ Комната удалена');
+            } catch(e) {
+                toast('❌ Ошибка: ' + e.message, true);
+            }
             await renderRooms();
         }
 
@@ -3808,37 +3818,31 @@ create table if not exists notifications (
             if (!currentUser) return;
             currentRoom = roomId;
 
-            // Регистрируемся как участник
-            const { error: joinErr } = await SB.from('anime_room_members').upsert([{
-                room_id: roomId,
-                user_login: currentUser.login,
-                username: currentUser.username,
-                avatar_url: currentUser.avatar_url || null,
-                joined_at: new Date().toISOString(),
-                last_seen: new Date().toISOString()
-            }], { onConflict: 'room_id,user_login' });
-
-            if (joinErr) {
-                // Если ошибка RLS — показываем SQL для исправления
-                if (joinErr.message && (joinErr.message.includes('security') || joinErr.message.includes('policy'))) {
-                    toast('⚠️ Ошибка доступа к комнате. Выполни SQL из панели верификации!', true);
-                } else {
-                    toast('Ошибка входа в комнату: ' + joinErr.message, true);
-                }
-                currentRoom = null;
-                return;
+            // Регистрируемся как участник (если ошибка — не блокируем вход)
+            try {
+                await SB.from('anime_room_members').upsert([{
+                    room_id: roomId,
+                    user_login: currentUser.login,
+                    username: currentUser.username,
+                    avatar_url: currentUser.avatar_url || null,
+                    joined_at: new Date().toISOString(),
+                    last_seen: new Date().toISOString()
+                }], { onConflict: 'room_id,user_login' });
+            } catch(e) {
+                console.warn('Не удалось зарегистрировать участника:', e);
             }
 
             await renderRoomInside();
             startRoomRealtime(roomId);
 
-            // Обновляем last_seen каждые 30 секунд пока в комнате
             if (roomSyncInterval) clearInterval(roomSyncInterval);
             roomSyncInterval = setInterval(async () => {
                 if (!currentRoom) return;
-                await SB.from('anime_room_members').update({ last_seen: new Date().toISOString() })
-                    .eq('room_id', currentRoom).eq('user_login', currentUser.login);
-                await refreshRoomMembers();
+                try {
+                    await SB.from('anime_room_members').update({ last_seen: new Date().toISOString() })
+                        .eq('room_id', currentRoom).eq('user_login', currentUser.login);
+                    await refreshRoomMembers();
+                } catch(e) {}
             }, 30000);
         }
 
@@ -3947,7 +3951,7 @@ create table if not exists notifications (
             </div>
 
             <!-- Основной грид: видео + сайдбар -->
-            <div style="display:grid;grid-template-columns:1fr 300px;gap:12px;align-items:start;" id="roomGrid">
+            <div style="display:flex;flex-direction:column;gap:12px;" id="roomGrid">
 
                 <!-- Левая: видео + управление -->
                 <div style="display:flex;flex-direction:column;gap:10px;">
@@ -3971,7 +3975,7 @@ create table if not exists notifications (
                     </div>
 
                     <!-- Чат -->
-                    <div style="background:rgba(18,18,26,0.8);backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.07);border-radius:16px;padding:12px;display:flex;flex-direction:column;height:360px;">
+                    <div style="background:rgba(18,18,26,0.8);backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.07);border-radius:16px;padding:12px;display:flex;flex-direction:column;height:280px;">
                         <div style="font-weight:600;font-size:12px;margin-bottom:10px;color:var(--text2);letter-spacing:0.5px;text-transform:uppercase;">💬 Чат комнаты</div>
                         <div id="roomChat" style="flex:1;overflow-y:auto;margin-bottom:8px;padding-right:4px;scrollbar-width:thin;scrollbar-color:rgba(255,107,157,0.3) transparent;">
                             ${chatHtml || '<div style="color:var(--text2);font-size:12px;text-align:center;padding:20px 0;opacity:0.6;">Начни общение! 💬</div>'}
