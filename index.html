@@ -37,6 +37,9 @@ alter table users add column if not exists avatar_url text;
 alter table users add column if not exists is_banned boolean default false;
 alter table users add column if not exists ban_reason text;
 
+-- 5. REALTIME для уведомлений (выполни чтобы уведомления приходили мгновенно)
+alter publication supabase_realtime add table notifications;
+
 ===========================================
 -->
 <html lang="ru">
@@ -2755,20 +2758,58 @@ create table if not exists notifications (
         }
 
         let notifRealtimeChannel = null;
+        let notifPollInterval = null;
+        let lastNotifCount = 0;
+        let lastNotifIds = new Set();
+
         function subscribeNotifications() {
             if (!currentUser) return;
-            if (notifRealtimeChannel) SB.removeChannel(notifRealtimeChannel);
-            notifRealtimeChannel = SB.channel('notif_' + currentUser.login)
-                .on('postgres_changes', {
-                    event: 'INSERT', schema: 'public', table: 'notifications',
-                    filter: `user_login=eq.${currentUser.login}`
-                }, payload => {
+
+            // Сразу грузим
+            loadNotifications();
+
+            // Polling каждые 4 секунды — надёжнее Realtime
+            if (notifPollInterval) clearInterval(notifPollInterval);
+            notifPollInterval = setInterval(async () => {
+                if (!currentUser) return;
+                const { data: notifs } = await SB.from('notifications')
+                    .select('*')
+                    .eq('user_login', currentUser.login)
+                    .eq('is_read', false)
+                    .order('created_at', { ascending: false })
+                    .limit(20);
+
+                const newOnes = (notifs || []).filter(n => !lastNotifIds.has(String(n.id)));
+                if (newOnes.length > 0) {
+                    // Обновляем бейдж и список
                     loadNotifications();
-                    const n = payload.new;
-                    const icon = NOTIF_ICONS[n.type] || '🔔';
-                    showNotifToast(icon + ' ' + (n.text || 'Новое уведомление'));
-                })
-                .subscribe();
+                    // Показываем тост для каждого нового
+                    newOnes.forEach(n => {
+                        const icon = NOTIF_ICONS[n.type] || '🔔';
+                        showNotifToast(icon + ' ' + (n.text || 'Новое уведомление'));
+                    });
+                }
+                // Обновляем известные id
+                (notifs || []).forEach(n => lastNotifIds.add(String(n.id)));
+
+            }, 4000);
+
+            // Realtime как дополнение (если включён в Supabase)
+            try {
+                if (notifRealtimeChannel) SB.removeChannel(notifRealtimeChannel);
+                notifRealtimeChannel = SB.channel('niji_notif_' + currentUser.login)
+                    .on('postgres_changes', {
+                        event: 'INSERT', schema: 'public', table: 'notifications'
+                    }, payload => {
+                        if (payload.new?.user_login !== currentUser.login) return;
+                        loadNotifications();
+                        const n = payload.new;
+                        const icon = NOTIF_ICONS[n.type] || '🔔';
+                        showNotifToast(icon + ' ' + (n.text || 'Новое уведомление'));
+                        lastNotifIds.add(String(n.id));
+                    })
+                    .subscribe();
+            } catch(e) { /* Realtime не настроен — не страшно, polling работает */ }
         }
 
         async function markNotifRead(id, el) {
@@ -2837,8 +2878,7 @@ create table if not exists notifications (
             document.addEventListener(evt, updateActivity, { passive: true })
         );
 
-        // Резервный опрос раз в минуту
-        setInterval(() => { if (currentUser) loadNotifications(); }, 60000);
+        // Polling уведомлений управляется через subscribeNotifications()
         init();
     </script>
 </body>
