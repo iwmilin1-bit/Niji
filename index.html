@@ -1,4 +1,40 @@
 <!DOCTYPE html>
+<!--
+=== SUPABASE SQL — выполни в SQL Editor ===
+
+-- 1. Таблица уведомлений
+create table if not exists notifications (
+  id bigint generated always as identity primary key,
+  user_login text not null,
+  type text,
+  text text,
+  is_read boolean default false,
+  created_at timestamptz default now()
+);
+alter table notifications enable row level security;
+create policy "anyone can insert notifications" on notifications for insert with check (true);
+create policy "users can read own notifications" on notifications for select using (true);
+create policy "users can update own notifications" on notifications for update using (true);
+
+-- 2. RLS для verification_requests (если ещё не настроен)
+alter table verification_requests enable row level security;
+create policy "anyone can insert verification_requests" on verification_requests for insert with check (true);
+create policy "anyone can select verification_requests" on verification_requests for select using (true);
+create policy "anyone can update verification_requests" on verification_requests for update using (true);
+
+-- 3. RLS для messages
+-- ВАЖНО: добавь колонку для фото если ещё нет:
+alter table messages add column if not exists image_url text;
+alter table messages enable row level security;
+create policy "anyone can insert messages" on messages for insert with check (true);
+create policy "anyone can select messages" on messages for select using (true);
+create policy "anyone can delete messages" on messages for delete using (true);
+
+-- 3. Колонка avatar_url в users (если нет)
+alter table users add column if not exists avatar_url text;
+
+===========================================
+-->
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -360,44 +396,65 @@
             await renderPage();
             await stats();
 
-            // Дополнительный вызов stats после обновления last_seen
-            setTimeout(() => stats(), 1500);
+            // Обновляем last_seen каждые 60 секунд пока вкладка открыта
+            if (currentUser) {
+                setInterval(async () => {
+                    await SB.from('users').update({ last_seen: new Date().toISOString() }).eq('login', currentUser.login);
+                }, 60000);
+            }
 
-            // Защита от бесконечной загрузки (1.5 секунды)
-            setTimeout(() => {
-                const el = document.getElementById('bigStatsText');
-                if (el) {
-                    if (el.innerHTML.includes('Загрузка') || el.innerHTML.trim() === '') {
-                        el.innerHTML = `👥 <strong style="color:#fff;">2</strong> зарегистрировано &nbsp;&nbsp; 🟢 <strong style="color:#4dc9f6;">1</strong> онлайн &nbsp;&nbsp; 📝 <strong style="color:#fff;">3</strong> постов`;
-                    }
-                }
-            }, 1500);
+            // Обновляем статистику каждые 30 секунд
+            setInterval(() => stats(), 30000);
         }
         async function stats() {
             try {
                 const { count: u } = await SB.from('users').select('*', { count: 'exact', head: true });
                 const { count: p } = await SB.from('posts').select('*', { count: 'exact', head: true });
+                const { count: msgs } = await SB.from('messages').select('*', { count: 'exact', head: true });
 
-                // Считаем "онлайн" — кто был активен за последние 30 минут
-                const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
-                const { count: online } = await SB.from('users')
-                    .select('*', { count: 'exact', head: true })
-                    .gte('last_seen', thirtyMinutesAgo);
+                // Онлайн = активен последние 3 минуты (точный онлайн)
+                const threeMinAgo = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+                const { data: onlineUsers } = await SB.from('users')
+                    .select('login, username, avatar_url')
+                    .gte('last_seen', threeMinAgo);
+
+                const onlineCount = onlineUsers ? onlineUsers.length : 0;
+
+                // Строим аватарки онлайн-пользователей
+                let onlineHtml = '';
+                if (onlineUsers && onlineUsers.length > 0) {
+                    const avatarsHtml = onlineUsers.slice(0, 5).map(u => {
+                        const av = u.avatar_url;
+                        let avatarStyle = `width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;border:2px solid #12121a;margin-left:-4px;overflow:hidden;flex-shrink:0;`;
+                        if (!av) {
+                            return `<div style="${avatarStyle}background:${color(u.login)};" title="${esc(u.username)}">${u.username[0].toUpperCase()}</div>`;
+                        }
+                        if (av.startsWith('data:avatar/svg+xml,')) {
+                            try {
+                                const parsed = JSON.parse(decodeURIComponent(av.replace('data:avatar/svg+xml,', '')));
+                                return `<div style="${avatarStyle}background:${parsed.bg};" title="${esc(u.username)}">${parsed.emoji}</div>`;
+                            } catch {}
+                        }
+                        return `<div style="${avatarStyle}background:${color(u.login)};" title="${esc(u.username)}"><img src="${esc(av)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;"></div>`;
+                    }).join('');
+
+                    const moreCount = onlineUsers.length > 5 ? `<span style="font-size:10px;color:var(--text2);margin-left:4px;">+${onlineUsers.length - 5}</span>` : '';
+                    onlineHtml = `<span style="display:inline-flex;align-items:center;margin-left:6px;">${avatarsHtml}${moreCount}</span>`;
+                }
 
                 const bigStats = document.getElementById('bigStatsText');
                 if (bigStats) {
                     bigStats.innerHTML = `
-                        👥 <strong style="color:#fff;">${u || 0}</strong> зарегистрировано &nbsp;&nbsp; 
-                        🟢 <strong style="color:#4dc9f6;">${online || 0}</strong> онлайн &nbsp;&nbsp; 
-                        📝 <strong style="color:#fff;">${p || 0}</strong> постов
+                        👥 <strong style="color:#fff;">${u || 0}</strong> зарег. &nbsp;
+                        <span style="display:inline-flex;align-items:center;gap:4px;">
+                            🟢 <strong style="color:#2ed573;">${onlineCount}</strong> онлайн${onlineHtml}
+                        </span> &nbsp;
+                        📝 <strong style="color:#fff;">${p || 0}</strong> постов &nbsp;
+                        💬 <strong style="color:#4dc9f6;">${msgs || 0}</strong> сообщений
                     `;
                 }
             } catch (err) {
                 console.error('Ошибка статистики:', err);
-                const bigStats = document.getElementById('bigStatsText');
-                if (bigStats) {
-                    bigStats.innerHTML = `👥 <strong style="color:#fff;">2</strong> зарегистрировано &nbsp;&nbsp; 🟢 <strong style="color:#4dc9f6;">1</strong> онлайн &nbsp;&nbsp; 📝 <strong style="color:#fff;">3</strong> постов`;
-                }
             }
         }
         function renderAll() {
@@ -563,10 +620,44 @@
             const btn = document.querySelector(`#post-${postId} .act`);
             if (btn && myLike) btn.classList.add('liked');
             const box = document.getElementById('comments-' + postId);
-            if (box && currentUser) {
-                box.innerHTML = (comments || []).map(c => '<div class="comment"><strong>' + esc(c.username) + '</strong> ' + esc(c.text) + '</div>').join('') +
-                    `<div class="comment-input"><input id="ci-${postId}" placeholder="Комментарий..." onkeydown="if(event.key==='Enter')addComment('${postId}')"><button class="btn btn-outline btn-sm" onclick="addComment('${postId}')">→</button></div>`;
+            if (!box) return;
+
+            // Загружаем аватарки авторов комментариев
+            let userMap = {};
+            if (comments && comments.length > 0) {
+                const logins = [...new Set(comments.map(c => c.user_login))];
+                const { data: usersData } = await SB.from('users').select('login, username, avatar_url').in('login', logins);
+                const avatarCache = JSON.parse(localStorage.getItem('niji_avatars') || '{}');
+                (usersData || []).forEach(u => {
+                    if (!u.avatar_url && avatarCache[u.login]) u.avatar_url = avatarCache[u.login];
+                    userMap[u.login] = u;
+                });
             }
+
+            let commentsHtml = (comments || []).map(c => {
+                const u = userMap[c.user_login] || { login: c.user_login, username: c.username, avatar_url: null };
+                const t = new Date(c.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+                return `<div class="comment" style="display:flex;align-items:flex-start;gap:7px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
+                    <div onclick="goProfile('${c.user_login}')" style="cursor:pointer;flex-shrink:0;">${buildAvatarHtml(u, 26, 11)}</div>
+                    <div style="flex:1;min-width:0;">
+                        <span style="font-weight:600;font-size:12px;cursor:pointer;color:var(--text);" onclick="goProfile('${c.user_login}')">${esc(c.username)}</span>
+                        <span style="font-size:10px;color:var(--text2);margin-left:5px;">${t}</span>
+                        <div style="font-size:12px;line-height:1.4;margin-top:2px;word-break:break-word;">${esc(c.text)}</div>
+                    </div>
+                </div>`;
+            }).join('');
+
+            const inputHtml = currentUser
+                ? `<div class="comment-input" style="margin-top:8px;display:flex;align-items:center;gap:7px;">
+                    <div style="flex-shrink:0;">${buildAvatarHtml(currentUser, 26, 11)}</div>
+                    <input id="ci-${postId}" placeholder="Написать комментарий..." 
+                        style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:15px;padding:6px 12px;color:var(--text);font-size:12px;font-family:inherit;"
+                        onkeydown="if(event.key==='Enter')addComment('${postId}')">
+                    <button class="btn btn-outline btn-sm" onclick="addComment('${postId}')">→</button>
+                  </div>`
+                : '';
+
+            box.innerHTML = commentsHtml + inputHtml;
         }
         async function renderMessages() {
             const mc = document.getElementById('mainContainer');
@@ -677,7 +768,7 @@
                         deleteBtn = `<span style="margin-left:8px; cursor:pointer; font-size:11px; opacity:0.6;" onclick="deleteMessage(${msg.id}, event)">🗑️</span>`;
                     }
                     msgsHtml += `<div class="msg-bubble ${isMine ? 'msg-sent' : 'msg-received'}">
-                        ${msg.image_url ? `<img src="${msg.image_url}" style="max-width:100%;max-height:260px;border-radius:10px;display:block;margin-bottom:${msg.text ? '6px' : '0'};" onerror="this.style.display='none'">` : ''}
+                        ${msg.image_url ? `<img src="${msg.image_url}" style="max-width:100%;max-height:400px;border-radius:10px;display:block;margin-bottom:${msg.text ? '6px' : '0'};object-fit:contain;cursor:pointer;" onclick="this.style.maxHeight=this.style.maxHeight==='none'?'400px':'none'" onerror="this.style.display='none'">` : ''}
                         ${msg.audio_url ? `<audio controls src="${msg.audio_url}" style="max-width:100%;border-radius:8px;"></audio>` : ''}
                         ${msg.text ? esc(msg.text) : ''}
                         <div style="font-size:9px; opacity:0.6; margin-top:4px; display:flex; align-items:center; justify-content:space-between;">
@@ -688,16 +779,50 @@
                 });
             }
 
-            // Если чат уже отрисован — обновляем только блок сообщений
+            // Если чат уже отрисован — добавляем только НОВЫЕ сообщения
             const existingContainer = document.getElementById('chatMessages');
             if (existingContainer) {
-                existingContainer.innerHTML = msgsHtml;
-                // Скролл: если был внизу — едем вниз; иначе — сохраняем позицию
-                if (wasAtBottom) {
-                    existingContainer.scrollTop = existingContainer.scrollHeight;
-                } else if (prevScrollTop !== null) {
-                    existingContainer.scrollTop = prevScrollTop;
+                // Считаем сколько реальных сообщений уже показано (без temp-)
+                const existingReal = existingContainer.querySelectorAll('.msg-bubble:not([id^="temp_"])').length;
+                const totalReal = (messages || []).length;
+
+                if (totalReal > existingReal) {
+                    // Есть новые — добавляем их в конец (только новые)
+                    const newMsgs = (messages || []).slice(existingReal);
+                    newMsgs.forEach(msg => {
+                        const isMine = msg.sender_login === currentUser.login;
+                        const t = new Date(msg.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+                        const deleteBtn = isMine ? `<span style="margin-left:8px;cursor:pointer;font-size:11px;opacity:0.6;" onclick="deleteMessage(${msg.id}, event)">🗑️</span>` : '';
+                        const div = document.createElement('div');
+                        div.className = `msg-bubble ${isMine ? 'msg-sent' : 'msg-received'}`;
+                        div.innerHTML = `
+                            ${msg.image_url ? `<img src="${msg.image_url}" style="max-width:100%;max-height:400px;border-radius:10px;display:block;margin-bottom:${msg.text?'6px':'0'};object-fit:contain;cursor:pointer;" onclick="this.style.maxHeight=this.style.maxHeight==='none'?'400px':'none'" onerror="this.style.display='none'">` : ''}
+                            ${msg.audio_url ? `<audio controls src="${msg.audio_url}" style="max-width:100%;border-radius:8px;"></audio>` : ''}
+                            ${msg.text ? esc(msg.text) : ''}
+                            <div style="font-size:9px;opacity:0.6;margin-top:4px;display:flex;align-items:center;justify-content:space-between;">
+                                <span>${t}</span>${deleteBtn}
+                            </div>`;
+                        // Удаляем temp-пузыри от себя если это моё новое сообщение
+                        // НО: если temp-пузырь содержит фото которого нет в реальном сообщении — оставляем его
+                        if (isMine) {
+                            const temps = existingContainer.querySelectorAll('[id^="temp_"]');
+                            if (temps.length > 0) {
+                                const temp = temps[0];
+                                const tempHasPhoto = temp.getAttribute('data-photo-only') === 'true';
+                                if (!tempHasPhoto) {
+                                    temp.remove();
+                                } else {
+                                    // Фото только локальное — оставляем temp, убираем статус ⏳
+                                    const statusEl = temp.querySelector('[id$="-status"]');
+                                    if (statusEl) statusEl.innerHTML = new Date().toLocaleTimeString('ru-RU', {hour:'2-digit',minute:'2-digit'}) + ' ✓';
+                                }
+                            }
+                        }
+                        existingContainer.appendChild(div);
+                    });
+                    if (wasAtBottom) existingContainer.scrollTop = existingContainer.scrollHeight;
                 }
+                // Ничего не делаем если новых нет — temp-пузыри остаются
                 return;
             }
 
@@ -714,8 +839,8 @@
             <div style="flex-shrink:0; border-top:1px solid var(--border); background:var(--surface); padding:8px 12px;">
                 <!-- Превью фото перед отправкой -->
                 <div id="chatPhotoPreview" style="display:none; padding:4px 0 8px; position:relative;">
-                    <img id="chatPhotoPreviewImg" style="max-height:80px; border-radius:8px; border:2px solid var(--pink);">
-                    <span onclick="clearChatPhoto()" style="position:absolute;top:2px;left:2px;background:rgba(0,0,0,0.6);color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:12px;">✕</span>
+                    <img id="chatPhotoPreviewImg" style="max-width:100%; max-height:200px; border-radius:10px; border:2px solid var(--pink); display:block; object-fit:contain;">
+                    <span onclick="clearChatPhoto()" style="position:absolute;top:2px;right:2px;background:rgba(0,0,0,0.7);color:#fff;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;font-weight:700;">✕</span>
                 </div>
                 <!-- Эмодзи -->
                 <div style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:8px;">
@@ -753,10 +878,12 @@
         }
 
         let chatPhotoData = null;
+        let chatPhotoFile = null;
 
         function previewChatPhoto(input) {
             const file = input.files[0];
-            if (!file) return;
+            if (!file || !file.type.startsWith('image/')) return toast('Только изображения!', true);
+            chatPhotoFile = file;
             const reader = new FileReader();
             reader.onload = e => {
                 chatPhotoData = e.target.result;
@@ -769,6 +896,7 @@
 
         function clearChatPhoto() {
             chatPhotoData = null;
+            chatPhotoFile = null;
             const wrap = document.getElementById('chatPhotoPreview');
             if (wrap) wrap.style.display = 'none';
         }
@@ -789,17 +917,108 @@
             if (!input || !chatWith) return;
             const text = input.value.trim();
             if (!text && !chatPhotoData) return;
-            await SB.from('messages').insert([{
-                sender_login: currentUser.login, sender_username: currentUser.username,
-                receiver_login: chatWith.login, receiver_username: chatWith.username,
-                text: text || '',
-                image_url: chatPhotoData || null
-            }]);
+
+            // Захватываем данные и сразу очищаем UI
+            const localPhotoSrc = chatPhotoData;
+            const msgText = text;
             input.value = '';
             chatPhotoData = null;
+            chatPhotoFile = null;
             const wrap = document.getElementById('chatPhotoPreview');
             if (wrap) wrap.style.display = 'none';
-            await renderChatMessages();
+
+            // Показываем сообщение мгновенно (оптимистично)
+            const tempId = 'temp_' + Date.now();
+            const t = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+            const container = document.getElementById('chatMessages');
+            if (container) {
+                const div = document.createElement('div');
+                div.className = 'msg-bubble msg-sent';
+                div.id = tempId;
+                div.innerHTML = `
+                    ${localPhotoSrc ? `<img src="${localPhotoSrc}" style="max-width:100%;max-height:400px;border-radius:10px;display:block;margin-bottom:${msgText?'6px':'0'};object-fit:contain;cursor:pointer;" onclick="this.style.maxHeight=this.style.maxHeight==='none'?'400px':'none'">` : ''}
+                    ${msgText ? esc(msgText) : ''}
+                    <div id="${tempId}-status" style="font-size:9px;opacity:0.5;margin-top:4px;">${t} ⏳</div>`;
+                container.appendChild(div);
+                container.scrollTop = container.scrollHeight;
+            }
+
+            // Загружаем фото в Storage если есть
+            let imageUrl = null;
+            if (localPhotoSrc) {
+                try {
+                    // Сжимаем только если фото очень большое (>4000px), иначе оставляем как есть
+                    const img = new Image();
+                    await new Promise(r => { img.onload = r; img.src = localPhotoSrc; });
+                    const needsResize = img.width > 4000 || img.height > 4000;
+                    const compressed = needsResize
+                        ? await compressImage(localPhotoSrc, 3000, 0.92)
+                        : localPhotoSrc;
+
+                    const res = await fetch(compressed);
+                    const blob = await res.blob();
+                    const safeLogin = currentUser.login.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_.-]/g,'');
+                    const ext = blob.type.includes('png') ? 'png' : 'jpg';
+                    const fileName = `chat/${safeLogin}_${Date.now()}.${ext}`;
+                    const { data: upData, error: upErr } = await SB.storage.from('post-images').upload(fileName, blob, { contentType: blob.type, upsert: false });
+                    if (!upErr) {
+                        const { data: urlData } = SB.storage.from('post-images').getPublicUrl(fileName);
+                        imageUrl = urlData.publicUrl;
+                    } else {
+                        // Если Storage недоступен — сохраняем ужатый base64 (≤200KB)
+                        const fallback = await compressImage(localPhotoSrc, 1200, 0.75);
+                        imageUrl = fallback;
+                        console.warn('Storage недоступен, используем base64 fallback:', upErr.message);
+                    }
+                } catch(e) {
+                    console.warn('Фото не загружено:', e);
+                    // Последний шанс — сжать покомпактнее и отправить как base64
+                    try {
+                        imageUrl = await compressImage(localPhotoSrc, 800, 0.7);
+                    } catch(e2) { /* совсем не повезло */ }
+                }
+            }
+
+            // Сохраняем в БД
+            let insertData = {
+                sender_login: currentUser.login,
+                sender_username: currentUser.username,
+                receiver_login: chatWith.login,
+                receiver_username: chatWith.username,
+                text: msgText || '',
+                image_url: imageUrl || null
+            };
+            let { error } = await SB.from('messages').insert([insertData]);
+
+            // Если колонки image_url нет — шлём без неё, но temp-пузырь с фото НЕ трогаем
+            if (error && error.message && error.message.includes('image_url')) {
+                const tempEl = document.getElementById(tempId);
+                if (tempEl) tempEl.setAttribute('data-photo-only', 'true');
+                delete insertData.image_url;
+                ({ error } = await SB.from('messages').insert([insertData]));
+                if (!error) toast('⚠️ Фото видно только тебе — добавь колонку image_url в messages в Supabase', true);
+            }
+
+            // Если сообщение слишком большое (base64 не влез в БД) — пробуем сжать сильнее
+            if (error && imageUrl && imageUrl.startsWith('data:') && (error.message.includes('too large') || error.message.includes('value too long') || error.message.includes('size'))) {
+                try {
+                    const moreCompressed = await compressImage(localPhotoSrc || imageUrl, 600, 0.65);
+                    insertData.image_url = moreCompressed;
+                    ({ error } = await SB.from('messages').insert([insertData]));
+                } catch(e2) { /* игнорируем */ }
+            }
+
+            if (error) {
+                // Помечаем ошибку прямо на пузыре — не удаляем его
+                const statusEl = document.getElementById(tempId + '-status');
+                if (statusEl) statusEl.innerHTML = `<span style="color:#ff4757;">❌ Не отправлено</span>`;
+                toast('❌ Ошибка: ' + error.message, true);
+                return;
+            }
+
+            // Убираем ⏳, оставляем пузырь как есть — перерисовка НЕ нужна
+            const statusEl = document.getElementById(tempId + '-status');
+            if (statusEl) statusEl.innerHTML = `${t} ✓`;
         }
         function closeChat() {
             document.getElementById('chatModal').style.display = 'none';
@@ -882,57 +1101,80 @@
         async function renderPeople() {
             const mc = document.getElementById('mainContainer');
             
-            // Пробуем с avatar_url, если колонки нет — повторяем без неё
             let users, error;
             ({ data: users, error } = await SB.from('users')
                 .select('login, username, registered, last_seen, is_verified, level, reputation, avatar_url')
-                .order('registered', { ascending: false }));
+                .order('last_seen', { ascending: false }));
 
             if (error && error.message && error.message.includes('avatar_url')) {
-                // Колонка ещё не создана — грузим без неё
                 ({ data: users, error } = await SB.from('users')
                     .select('login, username, registered, last_seen, is_verified, level, reputation')
-                    .order('registered', { ascending: false }));
-                // Добавляем пустой avatar_url чтобы buildAvatarHtml работал
+                    .order('last_seen', { ascending: false }));
                 if (users) users.forEach(u => u.avatar_url = null);
             }
 
             if (error) {
-                console.error('Ошибка загрузки пользователей:', error);
-                mc.innerHTML = `<div class="card" style="color:var(--danger);">Ошибка загрузки пользователей: ${error.message}</div>`;
+                mc.innerHTML = `<div class="card" style="color:var(--danger);">Ошибка: ${error.message}</div>`;
                 return;
             }
 
-            let html = `<h3 style="margin-bottom:14px;">👥 Все пользователи</h3>`;
+            const now = Date.now();
+            const threeMin = 3 * 60 * 1000;
+            const onlineList = (users || []).filter(u => u.last_seen && (now - new Date(u.last_seen).getTime()) < threeMin);
+
+            let html = `
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
+                    <h3 style="margin:0;">👥 Все пользователи</h3>
+                    <span style="font-size:12px; color:var(--text2);">
+                        🟢 <strong style="color:#2ed573;">${onlineList.length}</strong> онлайн из <strong style="color:#fff;">${(users||[]).length}</strong>
+                    </span>
+                </div>`;
 
             if (!users || users.length === 0) {
                 html += '<div class="card" style="text-align:center;color:var(--text2);">Пока нет пользователей</div>';
             } else {
                 users.forEach(u => {
                     if (!u.avatar_url) u.avatar_url = null;
-                    const regDate = new Date(u.registered).toLocaleString('ru-RU', { 
-                        day: 'numeric', month: 'short', year: 'numeric', 
-                        hour: '2-digit', minute: '2-digit' 
+                    const isOnline = u.last_seen && (now - new Date(u.last_seen).getTime()) < threeMin;
+                    const regDate = new Date(u.registered).toLocaleString('ru-RU', {
+                        day: 'numeric', month: 'short', year: 'numeric'
                     });
-                    const lastSeen = u.last_seen 
-                        ? new Date(u.last_seen).toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit' }) 
-                        : '—';
+
+                    let lastSeenText;
+                    if (!u.last_seen) {
+                        lastSeenText = 'не заходил';
+                    } else if (isOnline) {
+                        lastSeenText = 'сейчас онлайн';
+                    } else {
+                        const diff = now - new Date(u.last_seen).getTime();
+                        const mins = Math.floor(diff / 60000);
+                        const hours = Math.floor(diff / 3600000);
+                        const days = Math.floor(diff / 86400000);
+                        if (mins < 60) lastSeenText = `${mins} мин. назад`;
+                        else if (hours < 24) lastSeenText = `${hours} ч. назад`;
+                        else lastSeenText = `${days} дн. назад`;
+                    }
 
                     html += `
-                        <div class="dialog-row" onclick="goProfile('${u.login}')">
-                            ${buildAvatarHtml(u, 44, 18)}
+                        <div class="dialog-row" onclick="goProfile('${u.login}')" style="position:relative;">
+                            <div style="position:relative; flex-shrink:0;">
+                                ${buildAvatarHtml(u, 44, 18)}
+                                <span style="position:absolute;bottom:1px;right:1px;width:11px;height:11px;border-radius:50%;background:${isOnline ? '#2ed573' : '#555'};border:2px solid var(--bg);display:block;"></span>
+                            </div>
                             <div class="dialog-info">
                                 <div class="dialog-name">
                                     ${esc(u.username)}
-                                    ${u.is_verified ? `<span style="margin-left:4px; font-size:15px; filter: drop-shadow(0 0 4px #4dc9f6);">💎</span>` : ''}
-                                    <span style="font-size:9px; background:linear-gradient(90deg, #ff6b9d, #4dc9f6); color:#fff; padding:1px 6px; border-radius:8px; margin-left:5px; font-weight:600;">LVL ${u.level || 1}</span>
+                                    ${u.is_verified ? `<span style="margin-left:4px;font-size:15px;filter:drop-shadow(0 0 4px #4dc9f6);">💎</span>` : ''}
+                                    <span style="font-size:9px;background:linear-gradient(90deg,#ff6b9d,#4dc9f6);color:#fff;padding:1px 6px;border-radius:8px;margin-left:5px;font-weight:600;">LVL ${u.level || 1}</span>
                                     ${devBadge(u.login)}
                                 </div>
-                                <div style="font-size:11px;color:var(--text2);">Зарегистрирован: ${regDate}</div>
+                                <div style="font-size:11px;color:${isOnline ? '#2ed573' : 'var(--text2)'};">
+                                    ${isOnline ? '🟢 Онлайн' : '⚫ ' + lastSeenText}
+                                </div>
+                                <div style="font-size:10px;color:#555;margin-top:1px;">рег. ${regDate}</div>
                             </div>
-                            <div style="text-align:right; font-size:11px; color:#4dc9f6; font-weight:600;">
-                                <div>★ ${u.reputation || 0}</div>
-                                <div style="font-size:9px; color:#888;">🟢 ${lastSeen}</div>
+                            <div style="text-align:right;font-size:12px;color:#4dc9f6;font-weight:600;flex-shrink:0;">
+                                ★ ${u.reputation || 0}
                             </div>
                         </div>
                     `;
@@ -1322,7 +1564,39 @@
                 .eq('status', 'pending')
                 .order('created_at', { ascending: true });
 
-            let html = `<h3 style="margin-bottom:14px;">💎 Заявки на верификацию</h3>`;
+            let html = `<h3 style="margin-bottom:14px;">💎 Заявки на верификацию</h3>
+            <div style="background:var(--surface2);border:1px solid #4dc9f6;border-radius:12px;padding:12px;margin-bottom:14px;font-size:12px;">
+                <strong style="color:#4dc9f6;">⚙️ SQL для Supabase</strong> (выполни один раз если есть ошибки):
+                <pre id="sqlBlock" style="margin:8px 0 6px;padding:10px;background:#0a0a14;border-radius:8px;overflow-x:auto;color:#2ed573;font-size:11px;line-height:1.5;white-space:pre-wrap;user-select:all;">alter table notifications enable row level security;
+create policy "ni_ins" on notifications for insert with check (true);
+create policy "ni_sel" on notifications for select using (true);
+create policy "ni_upd" on notifications for update using (true);
+
+alter table verification_requests enable row level security;
+create policy "vr_ins" on verification_requests for insert with check (true);
+create policy "vr_sel" on verification_requests for select using (true);
+create policy "vr_upd" on verification_requests for update using (true);
+
+alter table messages enable row level security;
+create policy "msg_ins" on messages for insert with check (true);
+create policy "msg_sel" on messages for select using (true);
+create policy "msg_del" on messages for delete using (true);
+
+alter table users add column if not exists avatar_url text;
+
+create table if not exists notifications (
+  id bigint generated always as identity primary key,
+  user_login text not null,
+  type text,
+  text text,
+  is_read boolean default false,
+  created_at timestamptz default now()
+);</pre>
+                <button onclick="navigator.clipboard.writeText(document.getElementById('sqlBlock').textContent).then(()=>toast('SQL скопирован!'))" 
+                    style="background:#4dc9f6;color:#000;border:none;padding:5px 14px;border-radius:8px;font-size:12px;cursor:pointer;font-family:inherit;font-weight:600;">
+                    📋 Скопировать SQL
+                </button>
+            </div>`;
 
             if (!requests || requests.length === 0) {
                 html += '<div class="card" style="text-align:center;color:var(--text2);">Нет активных заявок</div>';
@@ -1837,12 +2111,26 @@
             let avatarUrl = null;
 
             if (avatarGalleryTab === 'upload' && uploadedAvatarFile) {
-                // Берём данные прямо из превью — оно уже загружено в DOM
-                const previewImg = document.getElementById('uploadAvatarPreviewImg');
-                if (previewImg && previewImg.src && previewImg.src.startsWith('data:')) {
-                    avatarUrl = previewImg.src;
-                } else {
-                    return toast('Сначала выбери фото!', true);
+                toast('Загружаю аватар...');
+                try {
+                    // Сжимаем до 300px
+                    const previewImg = document.getElementById('uploadAvatarPreviewImg');
+                    if (!previewImg || !previewImg.src.startsWith('data:')) return toast('Сначала выбери фото!', true);
+                    const compressed = await compressImage(previewImg.src, 300, 0.85);
+                    const res = await fetch(compressed);
+                    const blob = await res.blob();
+                    const safeLogin = currentUser.login.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_.-]/g,'');
+                    const fileName = `avatars/${safeLogin}_${Date.now()}.jpg`;
+                    const { error: upErr } = await SB.storage.from('post-images').upload(fileName, blob, { contentType:'image/jpeg', upsert: true });
+                    if (upErr) {
+                        // Storage не доступен — сохраняем base64
+                        avatarUrl = compressed;
+                    } else {
+                        const { data: urlData } = SB.storage.from('post-images').getPublicUrl(fileName);
+                        avatarUrl = urlData.publicUrl;
+                    }
+                } catch(e) {
+                    return toast('Ошибка загрузки фото', true);
                 }
             } else if (selectedAvatarEmoji || selectedAvatarGradient) {
                 const emoji = selectedAvatarEmoji || currentUser.username[0].toUpperCase();
@@ -1852,13 +2140,17 @@
                 return toast('Выберите аватар!', true);
             }
 
-            // Всегда сохраняем в localStorage
+            // Сохраняем в БД — чтобы ВСЕ видели
+            const { error: dbErr } = await SB.from('users').update({ avatar_url: avatarUrl }).eq('login', currentUser.login);
+            if (dbErr) {
+                toast('⚠️ Ошибка БД: ' + dbErr.message, true);
+                return;
+            }
+
+            // И в localStorage как кэш
             const avatarMap = JSON.parse(localStorage.getItem('niji_avatars') || '{}');
             avatarMap[currentUser.login] = avatarUrl;
             localStorage.setItem('niji_avatars', JSON.stringify(avatarMap));
-
-            // Пробуем также в БД (если колонка есть — молча игнорируем ошибку)
-            await SB.from('users').update({ avatar_url: avatarUrl }).eq('login', currentUser.login);
 
             currentUser.avatar_url = avatarUrl;
             toast('✅ Аватар сохранён!');
@@ -2290,9 +2582,24 @@
                 document.getElementById('notifPanel')?.classList.remove('show');
             }
         });
+
+        // Обновляем last_seen при активности пользователя (не чаще раза в минуту)
+        let lastActivityUpdate = 0;
+        async function updateActivity() {
+            if (!currentUser) return;
+            const now = Date.now();
+            if (now - lastActivityUpdate < 60000) return;
+            lastActivityUpdate = now;
+            await SB.from('users').update({ last_seen: new Date().toISOString() }).eq('login', currentUser.login);
+            stats();
+        }
+        ['click', 'keydown', 'touchstart'].forEach(evt =>
+            document.addEventListener(evt, updateActivity, { passive: true })
+        );
+
         // Опрашиваем уведомления каждые 30 секунд
         setInterval(() => { if (currentUser) loadNotifications(); }, 30000);
         init();
     </script>
 </body>
-    </html>
+</html>
