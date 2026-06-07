@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>にじ Niji</title>
+    <title>にじ Niji — Аниме соцсеть</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         :root{--bg:#0a0a0f;--surface:#12121a;--surface2:#1a1a26;--pink:#ff6b9d;--blue:#4dc9f6;--green:#2ed573;--text:#e0e0e0;--text2:#8888aa;--border:#252535;--danger:#ff4757}
@@ -22,7 +22,7 @@
         .btn-msg{background:var(--blue);color:#000;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;border:none;font-family:inherit}
         .avatar{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px;transition:transform 0.2s ease, box-shadow 0.2s ease}
         .avatar:hover{transform:scale(1.1);box-shadow:0 0 0 3px rgba(255,107,157,0.2)}
-        .avatar-lg{width:70px;height:70px;border-radius:50%;display:flex;align-items:center;justify-content-center;color:#fff;font-weight:700;font-size:28px;margin:0 auto}
+        .avatar-lg{width:70px;height:70px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:28px;margin:0 auto}
         .dropdown{position:absolute;top:40px;right:0;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:4px;min-width:150px;display:none;z-index:200}
         .dropdown.show{display:block}
         .dropdown button{display:block;width:100%;background:none;border:none;color:var(--text);padding:8px 14px;cursor:pointer;font-size:13px;text-align:left;border-radius:8px;font-family:inherit}
@@ -90,8 +90,6 @@
         .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--blue);color:#000;padding:10px 22px;border-radius:25px;font-weight:600;font-size:13px;z-index:9999;opacity:0;pointer-events:none;transition:opacity 0.3s}
         .toast.show{opacity:1}
         .toast.error{background:var(--danger);color:#fff}
-
-        /* Стили для картинок в постах */
         .post-image {
             max-width: 100%;
             max-height: 420px;
@@ -122,7 +120,6 @@
         <span id="notifText">💬 Niji — личные сообщения</span>
     </div>
 
-    <!-- Большая заметная статистика -->
     <div style="background:#12121a; border-bottom:1px solid #252535; padding:8px 0; text-align:center; font-size:14px; color:#ccc; min-height:22px;">
         <span id="bigStatsText" style="font-weight:600; letter-spacing:0.5px;">👥 Загрузка...</span>
     </div>
@@ -145,6 +142,7 @@
     </div>
     <div class="toast" id="toast"></div>
     <script>
+        // --- Глобальные переменные ---
         const SB = supabase.createClient(
             'https://fzgjkkljxbphrcjtqgew.supabase.co',
             'sb_publishable_Ef2IM3grizwYR1gCkJR6Aw_iDbnFn9Q'
@@ -156,172 +154,223 @@
         let profileTab = 'posts';
         let chatWith = null;
         let chatInterval = null;
-        async function init() {
-            const saved = localStorage.getItem('niji_session');
-            if (saved) {
-                const { data } = await SB.from('users').select('*').eq('login', saved).single();
-                if (data) {
-                    currentUser = data;
+        
+        // Для записи голосовых сообщений
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let isRecording = false;
 
-                    // Обновляем last_seen
-                    await SB.from('users').update({ last_seen: new Date().toISOString() }).eq('login', saved);
-
-                    // Ежедневный бонус +5 репутации (раз в день)
-                    const today = new Date().toISOString().split('T')[0];
-                    const lastLoginDate = data.last_seen ? data.last_seen.split('T')[0] : null;
-
-                    if (lastLoginDate !== today) {
-                        await addReputation(saved, 5, 'ежедневный вход');
-                    }
-                } else {
-                    localStorage.removeItem('niji_session');
-                }
-            }
-            renderAll();
-            await renderPage();
-            await stats();
-
-            // Дополнительный вызов stats после обновления last_seen
-            setTimeout(() => stats(), 1500);
-
-            // Защита от бесконечной загрузки (1.5 секунды)
-            setTimeout(() => {
-                const el = document.getElementById('bigStatsText');
-                if (el) {
-                    if (el.innerHTML.includes('Загрузка') || el.innerHTML.trim() === '') {
-                        el.innerHTML = `👥 <strong style="color:#fff;">2</strong> зарегистрировано &nbsp;&nbsp; 🟢 <strong style="color:#4dc9f6;">1</strong> онлайн &nbsp;&nbsp; 📝 <strong style="color:#fff;">3</strong> постов`;
-                    }
-                }
-            }, 1500);
+        // --- Функции для экранирования и цвета (объявлены первыми) ---
+        function esc(s) { 
+            if (!s) return ''; 
+            const d = document.createElement('div'); 
+            d.textContent = s; 
+            return d.innerHTML; 
         }
+        
+        function color(s) { 
+            const colors = ['#ff6b6b','#4ecdc4','#45b7d1','#f9ca24','#6c5ce7','#a29bfe','#ff9ff3']; 
+            let h = 0; 
+            for (let i = 0; i < s.length; i++) 
+                h = s.charCodeAt(i) + ((h << 5) - h); 
+            return colors[Math.abs(h) % colors.length]; 
+        }
+
+        // --- Система репутации (объявлена до использования) ---
+        async function addReputation(userLogin, amount, reason = '') {
+            if (!userLogin || amount === 0 || !userLogin) return;
+            try {
+                // Обновляем last_seen при начислении
+                if (currentUser && currentUser.login === userLogin) {
+                    await SB.from('users').update({ last_seen: new Date().toISOString() }).eq('login', userLogin);
+                }
+                const { data: user, error } = await SB.from('users')
+                    .select('reputation, level')
+                    .eq('login', userLogin)
+                    .single();
+                if (error || !user) return;
+                const newReputation = (user.reputation || 0) + amount;
+                const newLevel = Math.floor(newReputation / 100) + 1;
+                const leveledUp = newLevel > (user.level || 1);
+                await SB.from('users').update({
+                    reputation: newReputation,
+                    level: newLevel
+                }).eq('login', userLogin);
+                if (currentUser && currentUser.login === userLogin) {
+                    let msg = `+${amount} репутации`;
+                    if (reason) msg += ` (${reason})`;
+                    if (leveledUp) msg += `  → LVL ${newLevel}!`;
+                    toast(msg);
+                }
+            } catch(e) { console.warn("reputation error", e); }
+        }
+
+        // --- Вспомогательные функции ---
+        function toast(msg, isErr) {
+            const t = document.getElementById('toast');
+            if (!t) return;
+            t.textContent = msg;
+            t.className = 'toast show' + (isErr ? ' error' : '');
+            setTimeout(() => t.classList.remove('show', 'error'), 2500);
+        }
+
         async function stats() {
             try {
                 const { count: u } = await SB.from('users').select('*', { count: 'exact', head: true });
                 const { count: p } = await SB.from('posts').select('*', { count: 'exact', head: true });
-
-                // Считаем "онлайн" — кто был активен за последние 30 минут
                 const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
                 const { count: online } = await SB.from('users')
                     .select('*', { count: 'exact', head: true })
                     .gte('last_seen', thirtyMinutesAgo);
-
                 const bigStats = document.getElementById('bigStatsText');
                 if (bigStats) {
-                    bigStats.innerHTML = `
-                        👥 <strong style="color:#fff;">${u || 0}</strong> зарегистрировано &nbsp;&nbsp; 
-                        🟢 <strong style="color:#4dc9f6;">${online || 0}</strong> онлайн &nbsp;&nbsp; 
-                        📝 <strong style="color:#fff;">${p || 0}</strong> постов
-                    `;
+                    bigStats.innerHTML = `👥 <strong style="color:#fff;">${u || 0}</strong> зарегистрировано &nbsp;&nbsp; 🟢 <strong style="color:#4dc9f6;">${online || 0}</strong> онлайн &nbsp;&nbsp; 📝 <strong style="color:#fff;">${p || 0}</strong> постов`;
                 }
             } catch (err) {
                 console.error('Ошибка статистики:', err);
                 const bigStats = document.getElementById('bigStatsText');
-                if (bigStats) {
-                    bigStats.innerHTML = `👥 <strong style="color:#fff;">2</strong> зарегистрировано &nbsp;&nbsp; 🟢 <strong style="color:#4dc9f6;">1</strong> онлайн &nbsp;&nbsp; 📝 <strong style="color:#fff;">3</strong> постов`;
-                }
+                if (bigStats) bigStats.innerHTML = `👥 <strong>2</strong> зарегистрировано &nbsp;&nbsp; 🟢 <strong>1</strong> онлайн &nbsp;&nbsp; 📝 <strong>3</strong> постов`;
             }
         }
-        function renderAll() {
-            renderHeader();
-            renderNavTabs();
-        }
-        function renderHeader() {
-            const hr = document.getElementById('headerRight');
-            if (currentUser) {
-                hr.innerHTML = `
-                    <div class="user-badge" onclick="toggleDropdown()">
-                        <span>${esc(currentUser.username)}</span>
-                        <div class="avatar" style="background:${color(currentUser.login)};">${currentUser.username[0].toUpperCase()}</div>
-                        <div class="dropdown" id="userDropdown">
-                            <button onclick="goProfile('${currentUser.login}')">👤 Моя страница</button>
-                            <button onclick="goMessages()">💬 Сообщения</button>
-                            <button onclick="goHome()">📱 Лента</button>
-                            <button onclick="logout()" style="color:var(--danger);">🚪 Выйти</button>
-                        </div>
-                    </div>`;
-            } else {
-                hr.innerHTML = `
-                    <button class="btn btn-outline" onclick="openAuth('login')">Войти</button>
-                    <button class="btn btn-pink" onclick="openAuth('register')">Регистрация</button>`;
+
+        // --- Функции для постов и лайков ---
+        async function uploadPostImage(file) {
+            if (!file) return null;
+            const fileExt = file.name.split('.').pop();
+            const safeLogin = currentUser.login.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_.-]/g, '');
+            const fileName = `${safeLogin}/${Date.now()}.${fileExt}`;
+            const { error } = await SB.storage.from('post-images').upload(fileName, file, { cacheControl: '3600', upsert: false });
+            if (error) {
+                toast('Ошибка загрузки фото: ' + error.message, true);
+                return null;
             }
+            const { data: urlData } = SB.storage.from('post-images').getPublicUrl(fileName);
+            return urlData.publicUrl;
         }
-        function renderNavTabs() {
-            if (!currentUser) {
-                document.getElementById('navTabs').innerHTML = '';
+
+        function previewImage(inputId) {
+            const fileInput = document.getElementById(inputId + '-file');
+            const previewContainer = document.getElementById(inputId + '-preview');
+            const previewImg = document.getElementById(inputId + '-preview-img');
+            if (!fileInput || !previewContainer || !previewImg) return;
+            if (!fileInput.files.length) {
+                previewContainer.style.display = 'none';
                 return;
             }
-
-            let tabs = `
-                <button class="nav-tab ${page === 'feed' ? 'active' : ''}" onclick="goHome()">📱 Лента</button>
-                <button class="nav-tab ${page === 'people' ? 'active' : ''}" onclick="goPeople()">👥 Люди</button>
-                <button class="nav-tab ${page === 'messages' ? 'active' : ''}" onclick="goMessages()">💬 Сообщения</button>
-                <button class="nav-tab ${page === 'profile' ? 'active' : ''}" onclick="goProfile('${currentUser.login}')">👤 Профиль</button>`;
-
-            // Админ-панель верификации (только для тебя)
-            if (currentUser.login === 'иван милин') {
-                tabs += `<button class="nav-tab ${page === 'verification' ? 'active' : ''}" onclick="goVerification()">💎 Верификация</button>`;
+            const file = fileInput.files[0];
+            if (!file.type.startsWith('image/')) {
+                toast('Можно загружать только изображения', true);
+                fileInput.value = '';
+                return;
             }
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                previewImg.src = e.target.result;
+                previewContainer.style.display = 'block';
+            };
+            reader.readAsDataURL(file);
+        }
 
-            document.getElementById('navTabs').innerHTML = tabs;
-        }
-        async function renderPage() {
-            if (page === 'feed') await renderFeed();
-            else if (page === 'profile') await renderProfile();
-            else if (page === 'messages') await renderMessages();
-            else if (page === 'people') await renderPeople();
-            else if (page === 'verification') await renderVerification();
-        }
-        async function renderFeed() {
-            const mc = document.getElementById('mainContainer');
-            let html = '';
-            if (currentUser) {
-                html += `
-                <div class="card">
-                    <textarea id="postInput" placeholder="Что нового? #аниме"></textarea>
-                    
-                    <!-- Превью выбранного фото -->
-                    <div id="postInput-preview" style="margin:8px 0; display:none; max-width:100%;">
-                        <img id="postInput-preview-img" style="max-width:100%; max-height:220px; border-radius:10px; border:1px solid var(--border);">
-                    </div>
-                    
-                    <div class="row">
-                        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                            <button class="tag" onclick="addTag('АтакаТитанов')">⚔️ Атака</button>
-                            <button class="tag" onclick="addTag('МагическаяБитва')">👁️ Магия</button>
-                            <button class="tag" onclick="addTag('ВанПис')">🏴‍☠️ Ван-Пис</button>
-                            
-                            <!-- Кнопка прикрепить фото -->
-                            <label class="tag" style="cursor:pointer; background:var(--surface2); border:1px solid var(--blue); color:var(--blue);">
-                                📷 Фото
-                                <input type="file" id="postInput-file" accept="image/*" style="display:none;" onchange="previewImage('postInput')">
-                            </label>
-                        </div>
-                        <button class="btn btn-pink btn-sm" onclick="createPost('postInput')">Опубликовать</button>
-                    </div>
-                </div>`;
+        async function createPost(inputId) {
+            if (!currentUser) return toast('Войдите!', true);
+            const input = document.getElementById(inputId);
+            if (!input) return;
+            const text = input.value.trim();
+            const fileInput = document.getElementById(inputId + '-file');
+            const file = fileInput ? fileInput.files[0] : null;
+            if (!text && !file) return toast('Напиши текст или прикрепи фото!', true);
+            let imageUrl = null;
+            if (file) {
+                toast('Загружаю фото...');
+                imageUrl = await uploadPostImage(file);
+                if (!imageUrl) toast('Фото не загрузилось, публикую только текст', true);
             }
-            const { data: posts } = await SB.from('posts')
-                .select('*')
-                .order('created_at', { ascending: false })
-                .limit(50);
-            if (!posts || posts.length === 0) {
-                html += '<div class="card" style="text-align:center;color:var(--text2);">🌸 Пока нет постов</div>';
+            const tagMatch = text.match(/#(\S+)/);
+            const { error } = await SB.from('posts').insert([{
+                user_login: currentUser.login,
+                username: currentUser.username,
+                content: text || '',
+                tag: tagMatch ? tagMatch[1] : '',
+                image_url: imageUrl,
+                level: currentUser.level || 1
+            }]);
+            if (error) return toast('❌ ' + error.message, true);
+            input.value = '';
+            if (fileInput) fileInput.value = '';
+            const preview = document.getElementById(inputId + '-preview');
+            if (preview) preview.style.display = 'none';
+            document.getElementById('notifText').textContent = '📝 ' + currentUser.username + ' опубликовал(а) пост!';
+            toast('✅ Опубликовано!');
+            if (imageUrl) await addReputation(currentUser.login, 10, 'пост с фото');
+            await SB.from('users').update({ last_seen: new Date().toISOString() }).eq('login', currentUser.login);
+            await stats();
+            goHome();
+        }
+
+        async function deletePost(postId) {
+            if (!confirm('Удалить этот пост?')) return;
+            const { error } = await SB.from('posts').delete().eq('id', postId);
+            if (error) return toast('Ошибка удаления: ' + error.message, true);
+            toast('Пост удалён');
+            await renderPage();
+            await stats();
+        }
+
+        async function toggleLike(postId) {
+            if (!currentUser) return toast('Войдите!', true);
+            const { data: exist } = await SB.from('likes').select('*').eq('post_id', postId).eq('user_login', currentUser.login).single();
+            if (exist) {
+                await SB.from('likes').delete().eq('id', exist.id);
             } else {
-                for (const post of posts) {
-                    html += buildPostCard(post);
-                }
+                await SB.from('likes').insert([{ post_id: parseInt(postId), user_login: currentUser.login }]);
+                const { data: post } = await SB.from('posts').select('user_login').eq('id', postId).single();
+                if (post) await addReputation(post.user_login, 5, 'лайк');
             }
-            mc.innerHTML = html;
+            await loadPostStats(postId);
+            // Визуально обновляем кнопку лайка
+            const likeBtn = document.querySelector(`#post-${postId} .act:first-child`);
+            if (likeBtn) likeBtn.classList.toggle('liked');
+        }
 
-            // Загружаем реакции для всех постов
-            if (posts) {
-                posts.forEach(p => loadPostReactions(p.id));
-            }
-            // Загружаем статистику для всех постов после рендера
-            if (posts) {
-                posts.forEach(p => loadPostStats(p.id));
+        async function loadPostStats(postId) {
+            const { count: likes } = await SB.from('likes').select('*', { count: 'exact', head: true }).eq('post_id', postId);
+            const { data: myLike } = await SB.from('likes').select('*').eq('post_id', postId).eq('user_login', currentUser?.login).single();
+            const { count: coms } = await SB.from('comments').select('*', { count: 'exact', head: true }).eq('post_id', postId);
+            const { data: comments } = await SB.from('comments').select('*').eq('post_id', postId).order('created_at', { ascending: true });
+            const lc = document.getElementById('lc-' + postId);
+            if (lc) lc.textContent = likes || 0;
+            const cc = document.getElementById('cc-' + postId);
+            if (cc) cc.textContent = coms || 0;
+            const btn = document.querySelector(`#post-${postId} .act:first-child`);
+            if (btn && myLike) btn.classList.add('liked');
+            const box = document.getElementById('comments-' + postId);
+            if (box && currentUser) {
+                box.innerHTML = (comments || []).map(c => '<div class="comment"><strong>' + esc(c.username) + '</strong> ' + esc(c.text) + '</div>').join('') +
+                    `<div class="comment-input"><input id="ci-${postId}" placeholder="Комментарий..." onkeydown="if(event.key==='Enter')addComment('${postId}')"><button class="btn btn-outline btn-sm" onclick="addComment('${postId}')">→</button></div>`;
             }
         }
+
+        async function addComment(postId) {
+            if (!currentUser) return toast('Войдите!', true);
+            const input = document.getElementById('ci-' + postId);
+            if (!input) return;
+            const text = input.value.trim();
+            if (!text) return;
+            await SB.from('comments').insert([{
+                post_id: parseInt(postId), user_login: currentUser.login,
+                username: currentUser.username, text: text
+            }]);
+            const { data: post } = await SB.from('posts').select('user_login').eq('id', postId).single();
+            if (post) await addReputation(post.user_login, 2, 'комментарий');
+            input.value = '';
+            await loadPostStats(postId);
+            document.getElementById('comments-' + postId)?.classList.add('open');
+        }
+
+        function toggleComments(postId) {
+            document.getElementById('comments-' + postId)?.classList.toggle('open');
+        }
+
         function buildPostCard(post) {
             const time = new Date(post.created_at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
             return `
@@ -341,11 +390,7 @@
                 </div>
                 ${post.tag ? '<span class="post-tag">🎬 ' + esc(post.tag) + '</span>' : ''}
                 <div class="post-text">${esc(post.content)}</div>
-                
-                ${post.image_url ? `
-                    <img src="${post.image_url}" class="post-image" alt="post image" onerror="this.style.display='none'; console.log('Image failed to load:', this.src)">
-                ` : ''}
-                
+                ${post.image_url ? `<img src="${post.image_url}" class="post-image" alt="post image" onerror="this.style.display='none';">` : ''}
                 <div class="actions">
                     <button class="act" onclick="toggleLike('${post.id}')">❤️ <span id="lc-${post.id}">...</span></button>
                     <button class="act" onclick="toggleComments('${post.id}')">💬 <span id="cc-${post.id}">...</span></button>
@@ -353,23 +398,42 @@
                 <div class="comments-box" id="comments-${post.id}"></div>
             </div>`;
         }
-        async function loadPostStats(postId) {
-            const { count: likes } = await SB.from('likes').select('*', { count: 'exact', head: true }).eq('post_id', postId);
-            const { data: myLike } = await SB.from('likes').select('*').eq('post_id', postId).eq('user_login', currentUser?.login).single();
-            const { count: coms } = await SB.from('comments').select('*', { count: 'exact', head: true }).eq('post_id', postId);
-            const { data: comments } = await SB.from('comments').select('*').eq('post_id', postId).order('created_at', { ascending: true });
-            const lc = document.getElementById('lc-' + postId);
-            if (lc) lc.textContent = likes || 0;
-            const cc = document.getElementById('cc-' + postId);
-            if (cc) cc.textContent = coms || 0;
-            const btn = document.querySelector(`#post-${postId} .act`);
-            if (btn && myLike) btn.classList.add('liked');
-            const box = document.getElementById('comments-' + postId);
-            if (box && currentUser) {
-                box.innerHTML = (comments || []).map(c => '<div class="comment"><strong>' + esc(c.username) + '</strong> ' + esc(c.text) + '</div>').join('') +
-                    `<div class="comment-input"><input id="ci-${postId}" placeholder="Комментарий..." onkeydown="if(event.key==='Enter')addComment('${postId}')"><button class="btn btn-outline btn-sm" onclick="addComment('${postId}')">→</button></div>`;
+
+        // --- Рендер страниц ---
+        async function renderFeed() {
+            const mc = document.getElementById('mainContainer');
+            let html = '';
+            if (currentUser) {
+                html += `
+                <div class="card">
+                    <textarea id="postInput" placeholder="Что нового? #аниме"></textarea>
+                    <div id="postInput-preview" style="margin:8px 0; display:none; max-width:100%;">
+                        <img id="postInput-preview-img" style="max-width:100%; max-height:220px; border-radius:10px; border:1px solid var(--border);">
+                    </div>
+                    <div class="row">
+                        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                            <button class="tag" onclick="addTag('АтакаТитанов')">⚔️ Атака</button>
+                            <button class="tag" onclick="addTag('МагическаяБитва')">👁️ Магия</button>
+                            <button class="tag" onclick="addTag('ВанПис')">🏴‍☠️ Ван-Пис</button>
+                            <label class="tag" style="cursor:pointer; background:var(--surface2); border:1px solid var(--blue); color:var(--blue);">
+                                📷 Фото
+                                <input type="file" id="postInput-file" accept="image/*" style="display:none;" onchange="previewImage('postInput')">
+                            </label>
+                        </div>
+                        <button class="btn btn-pink btn-sm" onclick="createPost('postInput')">Опубликовать</button>
+                    </div>
+                </div>`;
             }
+            const { data: posts } = await SB.from('posts').select('*').order('created_at', { ascending: false }).limit(50);
+            if (!posts || posts.length === 0) {
+                html += '<div class="card" style="text-align:center;color:var(--text2);">🌸 Пока нет постов</div>';
+            } else {
+                for (const post of posts) html += buildPostCard(post);
+            }
+            mc.innerHTML = html;
+            if (posts) posts.forEach(p => loadPostStats(p.id));
         }
+
         async function renderMessages() {
             const mc = document.getElementById('mainContainer');
             const { data: sent } = await SB.from('messages').select('*').eq('sender_login', currentUser.login).order('created_at', { ascending: false });
@@ -379,18 +443,16 @@
                 const partner = msg.sender_login === currentUser.login ? msg.receiver_login : msg.sender_login;
                 const partnerName = msg.sender_login === currentUser.login ? msg.receiver_username : msg.sender_username;
                 if (!dialogs[partner] || new Date(msg.created_at) > new Date(dialogs[partner].time)) {
-                    dialogs[partner] = { login: partner, username: partnerName, lastText: msg.text, time: msg.created_at };
+                    dialogs[partner] = { login: partner, username: partnerName, lastText: msg.text || (msg.audio_url ? '🎤 Голосовое' : ''), time: msg.created_at };
                 }
             });
             let html = '<h3 style="margin-bottom:14px;">💬 Личные сообщения</h3>';
             const list = Object.values(dialogs).sort((a, b) => new Date(b.time) - new Date(a.time));
-            if (list.length === 0) {
-                html += '<div class="card" style="text-align:center;color:var(--text2);">Нет сообщений</div>';
-            } else {
+            if (list.length === 0) html += '<div class="card" style="text-align:center;color:var(--text2);">Нет сообщений</div>';
+            else {
                 list.forEach(d => {
                     const t = new Date(d.time).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-                    html += `
-                    <div class="dialog-row" onclick="openChat('${d.login}','${esc(d.username)}')">
+                    html += `<div class="dialog-row" onclick="openChat('${d.login}','${esc(d.username)}')">
                         <div class="dialog-avatar" style="background:${color(d.login)};">${d.username[0].toUpperCase()}</div>
                         <div class="dialog-info">
                             <div class="dialog-name">${esc(d.username)}</div>
@@ -403,14 +465,14 @@
             html += '<div class="card" style="text-align:center;"><button class="btn btn-outline" onclick="showUserList()">✉️ Написать пользователю</button></div>';
             mc.innerHTML = html;
         }
+
         async function showUserList() {
             const { data: users } = await SB.from('users').select('*').order('username');
             const mc = document.getElementById('mainContainer');
             let html = '<button class="btn-back" onclick="goMessages()">← Назад</button><h3 style="margin:12px 0;">👥 Выбери кому написать</h3>';
             users.forEach(u => {
                 if (u.login === currentUser.login) return;
-                html += `
-                <div class="dialog-row" onclick="openChat('${u.login}','${esc(u.username)}')">
+                html += `<div class="dialog-row" onclick="openChat('${u.login}','${esc(u.username)}')">
                     <div class="dialog-avatar" style="background:${color(u.login)};">${u.username[0].toUpperCase()}</div>
                     <div class="dialog-info"><div class="dialog-name">${esc(u.username)}</div></div>
                     <button class="btn-msg">💬</button>
@@ -418,6 +480,170 @@
             });
             mc.innerHTML = html;
         }
+
+        async function renderPeople() {
+            const mc = document.getElementById('mainContainer');
+            const { data: users } = await SB.from('users').select('login, username, registered, last_seen, reputation, level, is_verified').order('registered', { ascending: false });
+            let html = `<h3 style="margin-bottom:14px;">👥 Все пользователи</h3>`;
+            if (!users || users.length === 0) html += '<div class="card" style="text-align:center;color:var(--text2);">Пока нет пользователей</div>';
+            else {
+                users.forEach(u => {
+                    const regDate = new Date(u.registered).toLocaleString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                    const lastSeen = u.last_seen ? new Date(u.last_seen).toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '—';
+                    html += `<div class="dialog-row" onclick="goProfile('${u.login}')">
+                        <div class="dialog-avatar" style="background:${color(u.login)};">${u.username[0].toUpperCase()}</div>
+                        <div class="dialog-info">
+                            <div class="dialog-name">${esc(u.username)}${u.is_verified ? `<span style="margin-left:4px; font-size:15px;">💎</span>` : ''}<span style="font-size:9px; background:linear-gradient(90deg, #ff6b9d, #4dc9f6); color:#fff; padding:1px 6px; border-radius:8px; margin-left:5px; font-weight:600;">LVL ${u.level || 1}</span></div>
+                            <div style="font-size:11px;color:var(--text2);">Зарегистрирован: ${regDate}</div>
+                        </div>
+                        <div style="text-align:right; font-size:11px; color:#4dc9f6; font-weight:600;"><div>★ ${u.reputation || 0}</div><div style="font-size:9px; color:#888;">🟢 ${lastSeen}</div></div>
+                    </div>`;
+                });
+            }
+            mc.innerHTML = html;
+        }
+
+        async function renderProfile() {
+            if (!profileLogin) return goHome();
+            const mc = document.getElementById('mainContainer');
+            const { data: user } = await SB.from('users').select('*').eq('login', profileLogin).single();
+            if (!user) { mc.innerHTML = '<div class="card" style="text-align:center;">Пользователь не найден</div>'; return; }
+            const isMe = currentUser && currentUser.login === profileLogin;
+            const { count: posts } = await SB.from('posts').select('*', { count: 'exact', head: true }).eq('user_login', profileLogin);
+            const { count: guests } = await SB.from('guests').select('*', { count: 'exact', head: true }).eq('host_login', profileLogin);
+            const { count: followers_count } = await SB.from('follows').select('*', { count: 'exact', head: true }).eq('following_login', profileLogin);
+            const { count: following_count } = await SB.from('follows').select('*', { count: 'exact', head: true }).eq('follower_login', profileLogin);
+            let is_following = false;
+            if (currentUser && currentUser.login !== profileLogin) {
+                const { data: followCheck } = await SB.from('follows').select('id').eq('follower_login', currentUser.login).eq('following_login', profileLogin).single();
+                is_following = !!followCheck;
+            }
+            let html = `<button class="btn-back" onclick="goHome()">← Назад</button>
+                <div class="card" style="text-align:center;margin-top:12px;">
+                    <div class="avatar-lg" style="background:${color(profileLogin)};">${user.username[0].toUpperCase()}</div>
+                    <h2 style="margin-top:10px;">${esc(user.username)}${user.is_verified ? `<span style="margin-left:6px; font-size:22px;">💎</span>` : ''}</h2>
+                    <div style="color:var(--text2);">@${esc(profileLogin)}</div>
+                    <div style="margin-top:10px; display:flex; justify-content:center; align-items:center; gap:12px;">
+                        <div style="background:linear-gradient(90deg, #ff6b9d, #4dc9f6); color:#fff; padding:4px 14px; border-radius:20px; font-weight:700; font-size:14px;">LVL ${user.level || 1}</div>
+                        <div style="background:#2a2a38; padding:4px 12px; border-radius:20px; font-size:13px;">Репутация: <strong style="color:#4dc9f6;">${user.reputation || 0}</strong></div>
+                    </div>
+                    <div style="margin-top:8px; max-width:220px; margin-left:auto; margin-right:auto;">
+                        <div style="height:6px; background:#2a2a38; border-radius:3px; overflow:hidden;"><div style="height:100%; width:${((user.reputation || 0) % 100)}%; background:linear-gradient(90deg, #ff6b9d, #4dc9f6);"></div></div>
+                        <div style="font-size:10px; color:#888; margin-top:3px;">${(user.reputation || 0) % 100}/100 до LVL ${(user.level || 1) + 1}</div>
+                    </div>
+                    <div style="font-size:13px;margin-top:10px;">📝 ${posts||0} постов &nbsp;&nbsp; 👥 <strong>${followers_count || 0}</strong> подписчиков &nbsp;&nbsp; 👤 <strong>${following_count || 0}</strong> подписок</div>
+                    ${!isMe ? `<div style="margin-top:12px; display:flex; gap:10px; justify-content:center;">
+                        <button class="btn-msg" onclick="openChat('${profileLogin}','${esc(user.username)}')">💬 Написать</button>
+                        <button class="btn ${is_following ? 'btn-outline' : 'btn-pink'}" onclick="${is_following ? `unfollowUser('${profileLogin}')` : `followUser('${profileLogin}')`}">${is_following ? '✓ Подписан' : '+ Подписаться'}</button>
+                    </div>` : ''}
+                    ${isMe && !user.is_verified ? `<button class="btn btn-outline" style="margin-top:12px;" onclick="requestVerification()">💎 Запросить верификацию</button>` : ''}
+                </div>`;
+            if (isMe) {
+                html += `<div class="card">
+                    <textarea id="profilePostInput" placeholder="Что нового? #аниме"></textarea>
+                    <div id="profilePostInput-preview" style="margin:8px 0; display:none; max-width:100%;"><img id="profilePostInput-preview-img" style="max-width:100%; max-height:220px; border-radius:10px;"></div>
+                    <div class="row">
+                        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                            <button class="tag" onclick="addTag('АтакаТитанов')">⚔️ Атака</button>
+                            <button class="tag" onclick="addTag('МагическаяБитва')">👁️ Магия</button>
+                            <button class="tag" onclick="addTag('ВанПис')">🏴‍☠️ Ван-Пис</button>
+                            <label class="tag" style="cursor:pointer;"><input type="file" id="profilePostInput-file" accept="image/*" style="display:none;" onchange="previewImage('profilePostInput')">📷 Фото</label>
+                        </div>
+                        <button class="btn btn-pink btn-sm" onclick="createPost('profilePostInput')">Опубликовать</button>
+                    </div>
+                </div>`;
+            }
+            html += `<div class="tabs"><button class="tab ${profileTab === 'posts' ? 'active' : ''}" onclick="switchTab('posts')">📝 Посты</button><button class="tab ${profileTab === 'guests' ? 'active' : ''}" onclick="switchTab('guests')">👀 Гости (${guests||0})</button></div><div id="tabContent">Загрузка...</div>`;
+            mc.innerHTML = html;
+            await loadTab();
+        }
+
+        async function switchTab(tab) {
+            profileTab = tab;
+            await loadTab();
+        }
+
+        async function loadTab() {
+            const el = document.getElementById('tabContent');
+            if (!el) return;
+            if (profileTab === 'posts') {
+                const { data: posts } = await SB.from('posts').select('*').eq('user_login', profileLogin).order('created_at', { ascending: false });
+                if (!posts || posts.length === 0) el.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text2);">Пока нет постов</div>';
+                else {
+                    el.innerHTML = posts.map(p => buildPostCard(p)).join('');
+                    posts.forEach(p => loadPostStats(p.id));
+                }
+            } else {
+                const { data: guests } = await SB.from('guests').select('*').eq('host_login', profileLogin).order('visited_at', { ascending: false }).limit(30);
+                if (!guests || guests.length === 0) el.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text2);">👀 Пока никто не заходил</div>';
+                else {
+                    const unique = {};
+                    guests.forEach(g => { if (!unique[g.guest_login]) unique[g.guest_login] = g; });
+                    const list = Object.values(unique).slice(0, 20);
+                    const { data: users } = await SB.from('users').select('*').in('login', list.map(g => g.guest_login));
+                    el.innerHTML = list.map(g => {
+                        const u = users?.find(u => u.login === g.guest_login) || { username: g.guest_login };
+                        return `<div class="guest-row"><div class="avatar" style="background:${color(g.guest_login)};cursor:pointer;" onclick="goProfile('${g.guest_login}')">${u.username[0].toUpperCase()}</div><div style="flex:1;"><div class="post-name" onclick="goProfile('${g.guest_login}')">${esc(u.username)}</div><div style="font-size:11px;color:var(--text2);">${new Date(g.visited_at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div></div></div>`;
+                    }).join('');
+                }
+            }
+        }
+
+        // --- Подписки ---
+        async function followUser(targetLogin) {
+            if (!currentUser || currentUser.login === targetLogin) return;
+            const { error } = await SB.from('follows').insert([{ follower_login: currentUser.login, following_login: targetLogin }]);
+            if (error) return toast('Ошибка подписки: ' + error.message, true);
+            toast('Вы подписались!');
+            await renderProfile();
+        }
+        async function unfollowUser(targetLogin) {
+            if (!currentUser) return;
+            const { error } = await SB.from('follows').delete().eq('follower_login', currentUser.login).eq('following_login', targetLogin);
+            if (error) return toast('Ошибка отписки: ' + error.message, true);
+            toast('Вы отписались');
+            await renderProfile();
+        }
+
+        // --- Верификация ---
+        async function requestVerification() {
+            if (!currentUser) return;
+            const { data: existing } = await SB.from('verification_requests').select('id, status').eq('user_login', currentUser.login).in('status', ['pending', 'approved']).single();
+            if (existing) {
+                if (existing.status === 'pending') return toast('У тебя уже есть активная заявка на верификацию');
+                if (existing.status === 'approved') return toast('Ты уже верифицирован');
+            }
+            const { error } = await SB.from('verification_requests').insert([{ user_login: currentUser.login, username: currentUser.username, status: 'pending' }]);
+            if (error) return toast('Ошибка отправки заявки: ' + error.message, true);
+            toast('Заявка на верификацию отправлена!');
+        }
+        async function renderVerification() {
+            if (currentUser.login !== 'иван милин') return goHome();
+            const mc = document.getElementById('mainContainer');
+            const { data: requests } = await SB.from('verification_requests').select('*').eq('status', 'pending').order('created_at', { ascending: true });
+            let html = `<h3 style="margin-bottom:14px;">💎 Заявки на верификацию</h3>`;
+            if (!requests || requests.length === 0) html += '<div class="card" style="text-align:center;">Нет активных заявок</div>';
+            else {
+                requests.forEach(req => {
+                    const date = new Date(req.created_at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+                    html += `<div class="card"><div style="display:flex; justify-content:space-between;"><div><strong>${esc(req.username)}</strong> (@${esc(req.user_login)})<br><span style="font-size:12px;">${date}</span></div><div><button class="btn btn-pink btn-sm" onclick="approveVerification('${req.id}', '${req.user_login}')">Принять</button><button class="btn btn-outline btn-sm" style="border-color:var(--danger);color:var(--danger);" onclick="rejectVerification('${req.id}')">Отклонить</button></div></div></div>`;
+                });
+            }
+            mc.innerHTML = html;
+        }
+        async function approveVerification(requestId, userLogin) {
+            await SB.from('verification_requests').update({ status: 'approved', reviewed_at: new Date().toISOString(), reviewed_by: currentUser.login }).eq('id', requestId);
+            await SB.from('users').update({ is_verified: true }).eq('login', userLogin);
+            toast('Заявка одобрена!');
+            await renderVerification();
+        }
+        async function rejectVerification(requestId) {
+            await SB.from('verification_requests').update({ status: 'rejected', reviewed_at: new Date().toISOString(), reviewed_by: currentUser.login }).eq('id', requestId);
+            toast('Заявка отклонена');
+            await renderVerification();
+        }
+
+        // --- Чат и голосовые ---
         function openChat(login, username) {
             chatWith = { login, username };
             document.getElementById('chatModal').style.display = 'flex';
@@ -426,78 +652,51 @@
             chatInterval = setInterval(renderChatMessages, 3000);
         }
         async function renderChatMessages() {
-            if (!chatWith) return;
+            if (!chatWith || !currentUser) return;
             const el = document.getElementById('chatContent');
+            if (!el) return;
             const { data: messages } = await SB.from('messages').select('*')
                 .or(`and(sender_login.eq.${currentUser.login},receiver_login.eq.${chatWith.login}),and(sender_login.eq.${chatWith.login},receiver_login.eq.${currentUser.login})`)
                 .order('created_at', { ascending: true });
             let html = `<h3>💬 ${esc(chatWith.username)}</h3><div style="max-height:50vh;overflow-y:auto;padding:10px 0;" id="chatMessages">`;
-            if (!messages || messages.length === 0) {
-                html += '<div style="text-align:center;color:var(--text2);padding:20px;">Напиши первое сообщение!</div>';
-            } else {
+            if (!messages || messages.length === 0) html += '<div style="text-align:center;padding:20px;">Напиши первое сообщение!</div>';
+            else {
                 messages.forEach(msg => {
                     const isMine = msg.sender_login === currentUser.login;
                     const t = new Date(msg.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-                    let deleteBtn = '';
-                    if (isMine) {
-                        deleteBtn = `<span style="margin-left:8px; cursor:pointer; font-size:11px; opacity:0.6;" onclick="deleteMessage(${msg.id}, event)">🗑️</span>`;
-                    }
-                    html += `<div class="msg-bubble ${isMine ? 'msg-sent' : 'msg-received'}">
-                        ${esc(msg.text)}
-                        <div style="font-size:9px; opacity:0.6; margin-top:4px; display:flex; align-items:center; justify-content:space-between;">
-                            <span>${t}</span>
-                            ${deleteBtn}
-                        </div>
-                    </div>`;
+                    let content = '';
+                    if (msg.audio_url) content = `<audio controls src="${msg.audio_url}" style="max-width:200px; height:36px;"></audio>`;
+                    else content = esc(msg.text);
+                    html += `<div class="msg-bubble ${isMine ? 'msg-sent' : 'msg-received'}">${content}<div style="font-size:9px; opacity:0.6; margin-top:4px;">${t}${isMine ? `<span style="margin-left:8px; cursor:pointer;" onclick="deleteMessage(${msg.id}, event)">🗑️</span>` : ''}</div></div>`;
                 });
             }
             html += `</div>
-                <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px; padding:0 4px;">
-                    <span class="emoji-btn" onclick="insertEmoji('😊')">😊</span>
-                    <span class="emoji-btn" onclick="insertEmoji('😂')">😂</span>
-                    <span class="emoji-btn" onclick="insertEmoji('❤️')">❤️</span>
-                    <span class="emoji-btn" onclick="insertEmoji('👍')">👍</span>
-                    <span class="emoji-btn" onclick="insertEmoji('🔥')">🔥</span>
-                    <span class="emoji-btn" onclick="insertEmoji('💎')">💎</span>
-                    <span class="emoji-btn" onclick="insertEmoji('✨')">✨</span>
-                    <span class="emoji-btn" onclick="insertEmoji('🥺')">🥺</span>
+                <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px;">
+                    <span class="emoji-btn" onclick="insertEmoji('😊')">😊</span><span class="emoji-btn" onclick="insertEmoji('😂')">😂</span>
+                    <span class="emoji-btn" onclick="insertEmoji('❤️')">❤️</span><span class="emoji-btn" onclick="insertEmoji('👍')">👍</span>
+                    <span class="emoji-btn" onclick="insertEmoji('🔥')">🔥</span><span class="emoji-btn" onclick="insertEmoji('💎')">💎</span>
                 </div>
-
                 <div class="msg-input-area">
                     <input id="chatInput" placeholder="Сообщение..." onkeydown="if(event.key==='Enter')sendMessage()">
-                    
-                    <!-- Кнопка голосового сообщения -->
-                    <button id="voiceBtn" class="btn btn-outline btn-sm" onclick="toggleVoiceRecording()" style="padding:8px 12px; min-width:42px; font-size:16px;">
-                        🎤
-                    </button>
-                    
+                    <button id="voiceBtn" class="btn btn-outline btn-sm" onclick="toggleVoiceRecording()" style="padding:8px 12px; font-size:16px;">🎤</button>
                     <button class="btn btn-pink btn-sm" onclick="sendMessage()">Отправить</button>
                 </div>
-                <button class="btn-link" onclick="closeChat()" style="margin-top:8px;">Закрыть чат</button>`;
+                <button class="btn-link" onclick="closeChat()">Закрыть чат</button>`;
             el.innerHTML = html;
-            setTimeout(() => {
-                const container = document.getElementById('chatMessages');
-                if (container) container.scrollTop = container.scrollHeight;
-            }, 100);
+            setTimeout(() => { const c = document.getElementById('chatMessages'); if(c) c.scrollTop = c.scrollHeight; }, 100);
         }
         function insertEmoji(emoji) {
             const input = document.getElementById('chatInput');
-            if (!input) return;
-            input.value = input.value + emoji;
-            input.focus();
+            if (input) { input.value += emoji; input.focus(); }
         }
-
         async function deleteMessage(messageId, e) {
             e.stopImmediatePropagation();
-            if (!confirm('Удалить это сообщение?')) return;
-
+            if (!confirm('Удалить сообщение?')) return;
             const { error } = await SB.from('messages').delete().eq('id', messageId);
-            if (error) return toast('Ошибка удаления сообщения: ' + error.message, true);
-
+            if (error) return toast('Ошибка: ' + error.message, true);
             toast('Сообщение удалено');
             await renderChatMessages();
         }
-
         async function sendMessage() {
             const input = document.getElementById('chatInput');
             if (!input || !chatWith) return;
@@ -511,45 +710,28 @@
             input.value = '';
             await renderChatMessages();
         }
-        function closeChat() {
-            document.getElementById('chatModal').style.display = 'none';
-            if (chatInterval) clearInterval(chatInterval);
-            chatWith = null;
-        }
-
-        // === Голосовые сообщения ===
         async function toggleVoiceRecording() {
             const btn = document.getElementById('voiceBtn');
-            if (!btn || !chatWith || !currentUser) {
-                toast('Ошибка: откройте чат и войдите в аккаунт', true);
-                return;
-            }
-
+            if (!btn || !chatWith || !currentUser) return toast('Ошибка: откройте чат', true);
             if (!isRecording) {
                 try {
                     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                     mediaRecorder = new MediaRecorder(stream);
                     audioChunks = [];
-
-                    mediaRecorder.ondataavailable = (e) => {
-                        if (e.data.size > 0) audioChunks.push(e.data);
-                    };
-
+                    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
                     mediaRecorder.onstop = async () => {
                         await sendVoiceMessage();
                         isRecording = false;
                         btn.style.background = '';
                         btn.innerHTML = '🎤';
                     };
-
                     mediaRecorder.start();
                     isRecording = true;
                     btn.style.background = '#ff4757';
                     btn.innerHTML = '⏹️';
-                    toast('🎙️ Запись началась. Нажмите ещё раз, чтобы остановить.');
+                    toast('🎙️ Запись... Нажмите ещё раз для остановки');
                 } catch (err) {
-                    console.error(err);
-                    toast('Не удалось получить доступ к микрофону. Разрешите доступ в настройках браузера.', true);
+                    toast('Нет доступа к микрофону', true);
                 }
             } else {
                 if (mediaRecorder && mediaRecorder.state !== 'inactive') {
@@ -558,552 +740,68 @@
                 }
             }
         }
-
         async function sendVoiceMessage() {
             if (!chatWith || audioChunks.length === 0) return;
-
             const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
             const fileName = `voice_${currentUser.login}_${Date.now()}.webm`;
-
-            const { data, error } = await SB.storage.from('voice-messages').upload(fileName, audioBlob, {
-                contentType: 'audio/webm'
-            });
-
-            if (error) {
-                toast('Ошибка загрузки аудио: ' + error.message, true);
-                return;
-            }
-
+            const { error } = await SB.storage.from('voice-messages').upload(fileName, audioBlob, { contentType: 'audio/webm' });
+            if (error) return toast('Ошибка загрузки: ' + error.message, true);
             const { data: urlData } = SB.storage.from('voice-messages').getPublicUrl(fileName);
-            const audioUrl = urlData.publicUrl;
-
             await SB.from('messages').insert([{
-                sender_login: currentUser.login,
-                sender_username: currentUser.username,
-                receiver_login: chatWith.login,
-                receiver_username: chatWith.username,
-                audio_url: audioUrl
+                sender_login: currentUser.login, sender_username: currentUser.username,
+                receiver_login: chatWith.login, receiver_username: chatWith.username,
+                audio_url: urlData.publicUrl
             }]);
-
-            toast('Голосовое сообщение отправлено!');
+            toast('Голосовое отправлено!');
             await renderChatMessages();
         }
+        function closeChat() {
+            document.getElementById('chatModal').style.display = 'none';
+            if (chatInterval) clearInterval(chatInterval);
+            chatWith = null;
+        }
 
-        async function renderPeople() {
-            const mc = document.getElementById('mainContainer');
-            
-            const { data: users, error } = await SB.from('users')
-                .select('login, username, registered, last_seen')
-                .order('registered', { ascending: false });
-
-            if (error) {
-                console.error('Ошибка загрузки пользователей:', error);
-                mc.innerHTML = `<div class="card" style="color:var(--danger);">Ошибка загрузки пользователей: ${error.message}</div>`;
-                return;
-            }
-
-            let html = `<h3 style="margin-bottom:14px;">👥 Все пользователи</h3>`;
-
-            if (!users || users.length === 0) {
-                html += '<div class="card" style="text-align:center;color:var(--text2);">Пока нет пользователей</div>';
+        // --- Навигация и рендер ---
+        function renderAll() {
+            renderHeader();
+            renderNavTabs();
+        }
+        function renderHeader() {
+            const hr = document.getElementById('headerRight');
+            if (currentUser) {
+                hr.innerHTML = `<div class="user-badge" onclick="toggleDropdown()">
+                        <span>${esc(currentUser.username)}</span>
+                        <div class="avatar" style="background:${color(currentUser.login)};">${currentUser.username[0].toUpperCase()}</div>
+                        <div class="dropdown" id="userDropdown">
+                            <button onclick="goProfile('${currentUser.login}')">👤 Моя страница</button>
+                            <button onclick="goMessages()">💬 Сообщения</button>
+                            <button onclick="goHome()">📱 Лента</button>
+                            <button onclick="logout()" style="color:var(--danger);">🚪 Выйти</button>
+                        </div>
+                    </div>`;
             } else {
-                users.forEach(u => {
-                    const regDate = new Date(u.registered).toLocaleString('ru-RU', { 
-                        day: 'numeric', month: 'short', year: 'numeric', 
-                        hour: '2-digit', minute: '2-digit' 
-                    });
-                    const lastSeen = u.last_seen 
-                        ? new Date(u.last_seen).toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit' }) 
-                        : '—';
-
-                    html += `
-                        <div class="dialog-row" onclick="goProfile('${u.login}')">
-                            <div class="dialog-avatar" style="background:${color(u.login)};">${u.username[0].toUpperCase()}</div>
-                            <div class="dialog-info">
-                                <div class="dialog-name">
-                                    ${esc(u.username)}
-                                    ${u.is_verified ? `<span style="margin-left:4px; font-size:15px; filter: drop-shadow(0 0 4px #4dc9f6);">💎</span>` : ''}
-                                    <span style="font-size:9px; background:linear-gradient(90deg, #ff6b9d, #4dc9f6); color:#fff; padding:1px 6px; border-radius:8px; margin-left:5px; font-weight:600;">LVL ${u.level || 1}</span>
-                                </div>
-                                <div style="font-size:11px;color:var(--text2);">Зарегистрирован: ${regDate}</div>
-                            </div>
-                            <div style="text-align:right; font-size:11px; color:#4dc9f6; font-weight:600;">
-                                <div>★ ${u.reputation || 0}</div>
-                                <div style="font-size:9px; color:#888;">🟢 ${lastSeen}</div>
-                            </div>
-                        </div>
-                    `;
-                });
-            }
-            mc.innerHTML = html;
-        }
-        async function renderProfile() {
-            if (!profileLogin) return goHome();
-            const mc = document.getElementById('mainContainer');
-            const { data: user } = await SB.from('users').select('*').eq('login', profileLogin).single();
-            if (!user) { mc.innerHTML = '<div class="card" style="text-align:center;">Пользователь не найден</div>'; return; }
-            const isMe = currentUser && currentUser.login === profileLogin;
-            const { count: posts } = await SB.from('posts').select('*', { count: 'exact', head: true }).eq('user_login', profileLogin);
-            const { count: guests } = await SB.from('guests').select('*', { count: 'exact', head: true }).eq('host_login', profileLogin);
-
-            // Подписчики и подписки
-            const { count: followers_count } = await SB.from('follows').select('*', { count: 'exact', head: true }).eq('following_login', profileLogin);
-            const { count: following_count } = await SB.from('follows').select('*', { count: 'exact', head: true }).eq('follower_login', profileLogin);
-
-            // Проверяем, подписан ли текущий пользователь
-            let is_following = false;
-            if (currentUser && currentUser.login !== profileLogin) {
-                const { data: followCheck } = await SB.from('follows')
-                    .select('id')
-                    .eq('follower_login', currentUser.login)
-                    .eq('following_login', profileLogin)
-                    .single();
-                is_following = !!followCheck;
-            }
-
-            user.followers_count = followers_count || 0;
-            user.following_count = following_count || 0;
-            user.is_following = is_following;
-            let html = `<button class="btn-back" onclick="goHome()">← Назад</button>
-                <div class="card" style="text-align:center;margin-top:12px;">
-                    <div class="avatar-lg" style="background:${color(profileLogin)};">${user.username[0].toUpperCase()}</div>
-                    <h2 style="margin-top:10px;">
-                        ${esc(user.username)}
-                        ${user.is_verified ? `<span style="margin-left:6px; font-size:22px; filter: drop-shadow(0 0 6px #4dc9f6);">💎</span>` : ''}
-                    </h2>
-                    <div style="color:var(--text2);">@${esc(profileLogin)}</div>
-
-                    <!-- Уровень и репутация -->
-                    <div style="margin-top:10px; display:flex; justify-content:center; align-items:center; gap:12px;">
-                        <div style="background:linear-gradient(90deg, #ff6b9d, #4dc9f6); color:#fff; padding:4px 14px; border-radius:20px; font-weight:700; font-size:14px; box-shadow:0 0 10px rgba(255,107,157,0.5);">
-                            LVL ${user.level || 1}
-                        </div>
-                        <div style="background:#2a2a38; padding:4px 12px; border-radius:20px; font-size:13px; color:#ccc;">
-                            Репутация: <strong style="color:#4dc9f6;">${user.reputation || 0}</strong>
-                        </div>
-                    </div>
-
-                    <!-- Прогресс до следующего уровня -->
-                    <div style="margin-top:8px; max-width:220px; margin-left:auto; margin-right:auto;">
-                        <div style="height:6px; background:#2a2a38; border-radius:3px; overflow:hidden;">
-                            <div style="height:100%; width:${((user.reputation || 0) % 100)}%; background:linear-gradient(90deg, #ff6b9d, #4dc9f6); transition:width 0.3s;"></div>
-                        </div>
-                        <div style="font-size:10px; color:#888; margin-top:3px;">${(user.reputation || 0) % 100}/100 до LVL ${(user.level || 1) + 1}</div>
-                    </div>
-
-                    <div style="font-size:13px;margin-top:10px;">
-                        📝 ${posts||0} постов &nbsp;&nbsp; 
-                        👥 <strong>${user.followers_count || 0}</strong> подписчиков &nbsp;&nbsp; 
-                        👤 <strong>${user.following_count || 0}</strong> подписок
-                    </div>
-
-                    ${!isMe ? `
-                        <div style="margin-top:12px; display:flex; gap:10px; justify-content:center;">
-                            <button class="btn-msg" onclick="openChat('${profileLogin}','${esc(user.username)}')">💬 Написать</button>
-                            <button class="btn ${user.is_following ? 'btn-outline' : 'btn-pink'}" 
-                                    onclick="${user.is_following ? `unfollowUser('${profileLogin}')` : `followUser('${profileLogin}')`}">
-                                ${user.is_following ? '✓ Подписан' : '+ Подписаться'}
-                            </button>
-                        </div>
-                    ` : ''}
-
-                    ${isMe && !user.is_verified ? `
-                        <button class="btn btn-outline" style="margin-top:12px;" onclick="requestVerification()">
-                            💎 Запросить верификацию
-                        </button>
-                    ` : ''}
-                </div>`;
-            if (isMe) {
-                html += `
-                <div class="card">
-                    <textarea id="profilePostInput" placeholder="Что нового? #аниме"></textarea>
-                    
-                    <!-- Превью фото в профиле -->
-                    <div id="profilePostInput-preview" style="margin:8px 0; display:none; max-width:100%;">
-                        <img id="profilePostInput-preview-img" style="max-width:100%; max-height:220px; border-radius:10px; border:1px solid var(--border);">
-                    </div>
-                    
-                    <div class="row">
-                        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                            <button class="tag" onclick="addTag('АтакаТитанов')">⚔️ Атака</button>
-                            <button class="tag" onclick="addTag('МагическаяБитва')">👁️ Магия</button>
-                            <button class="tag" onclick="addTag('ВанПис')">🏴‍☠️ Ван-Пис</button>
-                            
-                            <label class="tag" style="cursor:pointer; background:var(--surface2); border:1px solid var(--blue); color:var(--blue);">
-                                📷 Фото
-                                <input type="file" id="profilePostInput-file" accept="image/*" style="display:none;" onchange="previewImage('profilePostInput')">
-                            </label>
-                        </div>
-                        <button class="btn btn-pink btn-sm" onclick="createPost('profilePostInput')">Опубликовать</button>
-                    </div>
-                </div>`;
-            }
-            html += `
-                <div class="tabs">
-                    <button class="tab ${profileTab === 'posts' ? 'active' : ''}" onclick="switchTab('posts')">📝 Посты</button>
-                    <button class="tab ${profileTab === 'guests' ? 'active' : ''}" onclick="switchTab('guests')">👀 Гости (${guests||0})</button>
-                </div>
-                <div id="tabContent">Загрузка...</div>`;
-            mc.innerHTML = html;
-            await loadTab();
-        }
-        async function switchTab(tab) {
-            profileTab = tab;
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            document.querySelector(`.tab:nth-child(${tab === 'posts' ? '1' : '2'})`)?.classList.add('active');
-            await loadTab();
-        }
-        async function loadTab() {
-            const el = document.getElementById('tabContent');
-            if (!el) return;
-            if (profileTab === 'posts') {
-                const { data: posts } = await SB.from('posts').select('*').eq('user_login', profileLogin).order('created_at', { ascending: false });
-                if (!posts || posts.length === 0) {
-                    el.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text2);">Пока нет постов</div>';
-                } else {
-                    el.innerHTML = posts.map(p => buildPostCard(p)).join('');
-                    posts.forEach(p => loadPostStats(p.id));
-                }
-            } else {
-                const { data: guests } = await SB.from('guests').select('*').eq('host_login', profileLogin).order('visited_at', { ascending: false }).limit(30);
-                if (!guests || guests.length === 0) {
-                    el.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text2);">👀 Пока никто не заходил</div>';
-                } else {
-                    const unique = {};
-                    guests.forEach(g => { if (!unique[g.guest_login]) unique[g.guest_login] = g; });
-                    const list = Object.values(unique).slice(0, 20);
-                    const { data: users } = await SB.from('users').select('*').in('login', list.map(g => g.guest_login));
-                    el.innerHTML = list.map(g => {
-                        const u = users?.find(u => u.login === g.guest_login) || { username: g.guest_login };
-                        return `<div class="guest-row"><div class="avatar" style="background:${color(g.guest_login)};cursor:pointer;" onclick="goProfile('${g.guest_login}')">${u.username[0].toUpperCase()}</div><div style="flex:1;"><div class="post-name" onclick="goProfile('${g.guest_login}')">${esc(u.username)}</div><div style="font-size:11px;color:var(--text2);">${new Date(g.visited_at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div></div></div>`;
-                    }).join('');
-                }
+                hr.innerHTML = `<button class="btn btn-outline" onclick="openAuth('login')">Войти</button><button class="btn btn-pink" onclick="openAuth('register')">Регистрация</button>`;
             }
         }
-        // === Загрузка картинки в Supabase Storage (bucket "post-images") ===
-        async function uploadPostImage(file) {
-            if (!file) return null;
-            const fileExt = file.name.split('.').pop();
-            
-            // Делаем безопасное имя папки (убираем пробелы и спецсимволы)
-            const safeLogin = currentUser.login
-                .replace(/\s+/g, '_')
-                .replace(/[^a-zA-Z0-9_.-]/g, '');
-            
-            const fileName = `${safeLogin}/${Date.now()}.${fileExt}`;
-            
-            const { data, error } = await SB.storage.from('post-images').upload(fileName, file, {
-                cacheControl: '3600',
-                upsert: false
-            });
-            if (error) {
-                toast('Ошибка загрузки фото: ' + error.message, true);
-                return null;
-            }
-            const { data: urlData } = SB.storage.from('post-images').getPublicUrl(fileName);
-            return urlData.publicUrl;
+        function renderNavTabs() {
+            if (!currentUser) { document.getElementById('navTabs').innerHTML = ''; return; }
+            let tabs = `<button class="nav-tab ${page === 'feed' ? 'active' : ''}" onclick="goHome()">📱 Лента</button>
+                        <button class="nav-tab ${page === 'people' ? 'active' : ''}" onclick="goPeople()">👥 Люди</button>
+                        <button class="nav-tab ${page === 'messages' ? 'active' : ''}" onclick="goMessages()">💬 Сообщения</button>
+                        <button class="nav-tab ${page === 'profile' ? 'active' : ''}" onclick="goProfile('${currentUser.login}')">👤 Профиль</button>`;
+            if (currentUser.login === 'иван милин') tabs += `<button class="nav-tab ${page === 'verification' ? 'active' : ''}" onclick="goVerification()">💎 Верификация</button>`;
+            document.getElementById('navTabs').innerHTML = tabs;
         }
-
-        async function createPost(inputId) {
-            if (!currentUser) return toast('Войдите!', true);
-            const input = document.getElementById(inputId);
-            if (!input) return;
-
-            const text = input.value.trim();
-            const fileInput = document.getElementById(inputId + '-file');
-            const file = fileInput ? fileInput.files[0] : null;
-
-            if (!text && !file) return toast('Напиши текст или прикрепи фото!', true);
-
-            let imageUrl = null;
-            if (file) {
-                toast('Загружаю фото...');
-                imageUrl = await uploadPostImage(file);
-                if (!imageUrl) {
-                    toast('Фото не загрузилось, публикую только текст', true);
-                    // Продолжаем без фото
-                }
-            }
-
-            const tagMatch = text.match(/#(\S+)/);
-            const { error } = await SB.from('posts').insert([{
-                user_login: currentUser.login,
-                username: currentUser.username,
-                content: text || '',
-                tag: tagMatch ? tagMatch[1] : '',
-                image_url: imageUrl
-            }]);
-
-            if (error) return toast('❌ ' + error.message, true);
-
-            // Очистка формы
-            input.value = '';
-            if (fileInput) fileInput.value = '';
-            const preview = document.getElementById(inputId + '-preview');
-            if (preview) preview.style.display = 'none';
-
-            document.getElementById('notifText').textContent = '📝 ' + currentUser.username + ' опубликовал(а) пост!';
-            toast('✅ Опубликовано!');
-
-            // +10 репутации за пост с фото
-            if (imageUrl) {
-                await addReputation(currentUser.login, 10, 'пост с фото');
-            }
-
-            // Обновляем last_seen
-            await SB.from('users').update({ last_seen: new Date().toISOString() }).eq('login', currentUser.login);
-
-            await stats();
-
-            // Всегда перекидываем в общую Ленту после публикации поста
-            goHome();
-        }
-
-        // === Верификация ===
-        // === Подписки ===
-        async function followUser(targetLogin) {
-            if (!currentUser || currentUser.login === targetLogin) return;
-
-            const { error } = await SB.from('follows').insert([{
-                follower_login: currentUser.login,
-                following_login: targetLogin
-            }]);
-
-            if (error) return toast('Ошибка подписки: ' + error.message, true);
-
-            toast('Вы подписались!');
-            await renderProfile(); // обновляем профиль
-        }
-
-        async function unfollowUser(targetLogin) {
-            if (!currentUser) return;
-
-            const { error } = await SB.from('follows')
-                .delete()
-                .eq('follower_login', currentUser.login)
-                .eq('following_login', targetLogin);
-
-            if (error) return toast('Ошибка отписки: ' + error.message, true);
-
-            toast('Вы отписались');
-            await renderProfile();
-        }
-
-        async function requestVerification() {
-            if (!currentUser) return;
-
-            // Проверяем, нет ли уже активной заявки
-            const { data: existing } = await SB.from('verification_requests')
-                .select('id, status')
-                .eq('user_login', currentUser.login)
-                .in('status', ['pending', 'approved'])
-                .single();
-
-            if (existing) {
-                if (existing.status === 'pending') {
-                    return toast('У тебя уже есть активная заявка на верификацию');
-                }
-                if (existing.status === 'approved') {
-                    return toast('Ты уже верифицирован');
-                }
-            }
-
-            const { error } = await SB.from('verification_requests').insert([{
-                user_login: currentUser.login,
-                username: currentUser.username,
-                status: 'pending'
-            }]);
-
-            if (error) return toast('Ошибка отправки заявки: ' + error.message, true);
-
-            toast('Заявка на верификацию отправлена! Ожидай решения.');
-        }
-
-        // === Админ-панель верификации ===
-        async function renderVerification() {
-            if (currentUser.login !== 'иван милин') return goHome();
-
-            const mc = document.getElementById('mainContainer');
-            const { data: requests } = await SB.from('verification_requests')
-                .select('*')
-                .eq('status', 'pending')
-                .order('created_at', { ascending: true });
-
-            let html = `<h3 style="margin-bottom:14px;">💎 Заявки на верификацию</h3>`;
-
-            if (!requests || requests.length === 0) {
-                html += '<div class="card" style="text-align:center;color:var(--text2);">Нет активных заявок</div>';
-            } else {
-                requests.forEach(req => {
-                    const date = new Date(req.created_at).toLocaleString('ru-RU', { 
-                        day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' 
-                    });
-
-                    html += `
-                        <div class="card">
-                            <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <div>
-                                    <strong>${esc(req.username)}</strong> (@${esc(req.user_login)})<br>
-                                    <span style="font-size:12px; color:var(--text2);">Заявка от ${date}</span>
-                                </div>
-                                <div style="display:flex; gap:8px;">
-                                    <button class="btn btn-pink btn-sm" onclick="approveVerification('${req.id}', '${req.user_login}')">Принять</button>
-                                    <button class="btn btn-outline btn-sm" style="border-color:var(--danger);color:var(--danger);" onclick="rejectVerification('${req.id}')">Отклонить</button>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                });
-            }
-            mc.innerHTML = html;
-        }
-
-        async function approveVerification(requestId, userLogin) {
-            await SB.from('verification_requests').update({
-                status: 'approved',
-                reviewed_at: new Date().toISOString(),
-                reviewed_by: currentUser.login
-            }).eq('id', requestId);
-
-            await SB.from('users').update({ is_verified: true }).eq('login', userLogin);
-
-            toast('Заявка одобрена! Пользователь получил 💎');
-            await renderVerification();
-        }
-
-        async function rejectVerification(requestId) {
-            await SB.from('verification_requests').update({
-                status: 'rejected',
-                reviewed_at: new Date().toISOString(),
-                reviewed_by: currentUser.login
-            }).eq('id', requestId);
-
-            toast('Заявка отклонена');
-            await renderVerification();
-        }
-
-        async function deletePost(postId) {
-            if (!confirm('Удалить этот пост?')) return;
-
-            const { error } = await SB.from('posts').delete().eq('id', postId);
-            if (error) return toast('Ошибка удаления: ' + error.message, true);
-
-            toast('Пост удалён');
-            await renderPage();
-            await stats();
-        }
-
-        // === Система репутации и уровней ===
-        async function addReputation(userLogin, amount, reason = '') {
-            if (!userLogin || amount === 0) return;
-
-            // Обновляем last_seen при начислении репутации
-            if (currentUser && currentUser.login === userLogin) {
-                await SB.from('users').update({ last_seen: new Date().toISOString() }).eq('login', userLogin);
-            }
-
-            // Получаем текущие значения
-            const { data: user } = await SB.from('users')
-                .select('reputation, level')
-                .eq('login', userLogin)
-                .single();
-
-            if (!user) return;
-
-            const newReputation = (user.reputation || 0) + amount;
-            const newLevel = Math.floor(newReputation / 100) + 1;
-            const leveledUp = newLevel > (user.level || 1);
-
-            await SB.from('users').update({
-                reputation: newReputation,
-                level: newLevel
-            }).eq('login', userLogin);
-
-            // Показываем красивое уведомление
-            if (currentUser && currentUser.login === userLogin) {
-                let msg = `+${amount} репутации`;
-                if (reason) msg += ` (${reason})`;
-                if (leveledUp) msg += `  → LVL ${newLevel}!`;
-
-                toast(msg);
-            }
-        }
-
-        function addTag(t) {
-            const input = document.querySelector('textarea:focus') || document.getElementById('postInput') || document.getElementById('profilePostInput');
-            if (input) { input.value += ' #' + t; input.focus(); }
-        }
-
-        // Превью картинки перед отправкой поста
-        function previewImage(inputId) {
-            const fileInput = document.getElementById(inputId + '-file');
-            const previewContainer = document.getElementById(inputId + '-preview');
-            const previewImg = document.getElementById(inputId + '-preview-img');
-
-            if (!fileInput || !fileInput.files.length) return;
-
-            const file = fileInput.files[0];
-            if (!file.type.startsWith('image/')) {
-                toast('Можно загружать только изображения', true);
-                fileInput.value = '';
-                return;
-            }
-
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                if (previewContainer && previewImg) {
-                    previewImg.src = e.target.result;
-                    previewContainer.style.display = 'block';
-                }
-            };
-            reader.readAsDataURL(file);
-        }
-        async function toggleLike(postId) {
-            if (!currentUser) return toast('Войдите!', true);
-            const { data: exist } = await SB.from('likes').select('*').eq('post_id', postId).eq('user_login', currentUser.login).single();
-
-            if (exist) {
-                await SB.from('likes').delete().eq('id', exist.id);
-            } else {
-                await SB.from('likes').insert([{ post_id: parseInt(postId), user_login: currentUser.login }]);
-
-                // Даём +5 репутации автору поста
-                const { data: post } = await SB.from('posts').select('user_login').eq('id', postId).single();
-                if (post) {
-                    await addReputation(post.user_login, 5, 'лайк');
-                }
-            }
-            await loadPostStats(postId);
-        }
-        function toggleComments(postId) {
-            document.getElementById('comments-' + postId)?.classList.toggle('open');
-        }
-        async function addComment(postId) {
-            if (!currentUser) return toast('Войдите!', true);
-            const input = document.getElementById('ci-' + postId);
-            if (!input) return;
-            const text = input.value.trim();
-            if (!text) return;
-            await SB.from('comments').insert([{
-                post_id: parseInt(postId), user_login: currentUser.login,
-                username: currentUser.username, text: text
-            }]);
-
-            // Даём +2 репутации автору поста за комментарий
-            const { data: post } = await SB.from('posts').select('user_login').eq('id', postId).single();
-            if (post) {
-                await addReputation(post.user_login, 2, 'комментарий');
-            }
-
-            input.value = '';
-            await loadPostStats(postId);
-            document.getElementById('comments-' + postId)?.classList.add('open');
+        async function renderPage() {
+            if (page === 'feed') await renderFeed();
+            else if (page === 'profile') await renderProfile();
+            else if (page === 'messages') await renderMessages();
+            else if (page === 'people') await renderPeople();
+            else if (page === 'verification') await renderVerification();
         }
         function goHome() { page = 'feed'; profileLogin = null; renderAll(); renderPage(); }
         function goMessages() { page = 'messages'; renderAll(); renderPage(); }
-
         function goPeople() { page = 'people'; renderAll(); renderPage(); }
-
         function goVerification() { page = 'verification'; renderAll(); renderPage(); }
         async function goProfile(login) {
             if (!currentUser) return toast('Войдите!', true);
@@ -1111,6 +809,13 @@
             profileLogin = login; page = 'profile'; profileTab = 'posts';
             renderAll(); await renderPage();
         }
+        function addTag(t) {
+            const input = document.querySelector('textarea:focus') || document.getElementById('postInput') || document.getElementById('profilePostInput');
+            if (input) { input.value += ' #' + t; input.focus(); }
+        }
+        function toggleDropdown() { document.getElementById('userDropdown')?.classList.toggle('show'); }
+
+        // --- Аутентификация ---
         function openAuth(mode) {
             isLogin = (mode === 'login');
             document.getElementById('authTitle').textContent = isLogin ? '🚀 Вход' : '🌸 Регистрация';
@@ -1138,101 +843,62 @@
             } else {
                 const { data: exist } = await SB.from('users').select('id').eq('login', login).single();
                 if (exist) return toast('Логин занят', true);
-                const { error } = await SB.from('users').insert([{ login, username: login, password: pass }]);
+                const { error } = await SB.from('users').insert([{ login, username: login, password: pass, reputation: 0, level: 1 }]);
                 if (error) return toast('Ошибка: ' + error.message, true);
-                toast('✅ Аккаунт создан! Войди.');
+                toast('✅ Аккаунт создан! Войдите.');
                 toggleAuth();
-                await stats();
             }
+            await stats();
         }
         async function logout() {
             currentUser = null;
             localStorage.removeItem('niji_session');
             goHome();
         }
-        function toggleDropdown() { document.getElementById('userDropdown')?.classList.toggle('show'); }
-        function toast(msg, isErr) {
-            const t = document.getElementById('toast');
-            t.textContent = msg;
-            t.className = 'toast show' + (isErr ? ' error' : '');
-            setTimeout(() => t.classList.remove('show', 'error'), 2500);
-        }
 
-        // === Кнопка обновлений / Ченджлог ===
+        // --- Ченджлог ---
         function showChangelog() {
             const modal = document.createElement('div');
             modal.className = 'modal-overlay';
-            modal.innerHTML = `
-                <div class="modal" style="max-width:460px; max-height:85vh; overflow-y:auto;">
-                    <h2 style="margin-bottom:16px; text-align:center;">にじ Niji — Обновления</h2>
-                    
-                    <!-- v1.6 -->
-                    <div style="background:var(--surface2); padding:16px; border-radius:12px; margin-bottom:14px; border-left:4px solid #4dc9f6;">
-                        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
-                            <strong style="color:#4dc9f6; font-size:15px;">v1.6</strong>
-                            <span style="font-size:11px; color:#888;">3 июня 2026</span>
-                        </div>
-                        <div style="font-size:13px; line-height:1.6;">
-                            <strong>👥 Система подписок (Follow)</strong><br>
-                            • Можно подписываться на других пользователей<br>
-                            • В профиле отображается количество подписчиков и подписок<br>
-                            • Кнопка «Подписаться» / «Отписаться»<br>
-                            • Работает стабильно<br><br>
-                            
-                            <strong>💎 Система Верификации</strong> + <strong>⭐ Уровни и репутация</strong><br>
-                            • Улучшенная система уровней и репутации<br>
-                            • Верификация с админ-панелью
-                        </div>
-                    </div>
-
-                    <!-- v1.5 -->
-                    <div style="background:var(--surface2); padding:16px; border-radius:12px; margin-bottom:14px; border-left:4px solid #ff6b9d; opacity:0.9;">
-                        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
-                            <strong style="color:#ff6b9d; font-size:15px;">v1.5</strong>
-                            <span style="font-size:11px; color:#888;">3 июня 2026</span>
-                        </div>
-                        <div style="font-size:13px; line-height:1.6; opacity:0.9;">
-                            <strong>💎 Система Верификации</strong> + улучшенная репутация + большая статистика
-                        </div>
-                    </div>
-
-                    <!-- v1.4 -->
-                    <div style="background:var(--surface2); padding:14px; border-radius:12px; margin-bottom:12px; opacity:0.9;">
-                        <strong style="color:#ff6b9d;">v1.4</strong> — Вкладка <strong>«Люди»</strong> + большая статистика<br>
-                        <span style="font-size:12px; color:#aaa;">Список всех пользователей с датой регистрации и последней активностью</span>
-                    </div>
-
-                    <!-- v1.3 -->
-                    <div style="background:var(--surface2); padding:14px; border-radius:12px; margin-bottom:12px; opacity:0.85;">
-                        <strong style="color:#ff6b9d;">v1.3</strong> — Удаление своих постов + улучшенный дизайн<br>
-                        <span style="font-size:12px; color:#aaa;">Кнопка удаления + красивые hover-эффекты</span>
-                    </div>
-
-                    <!-- v1.2 -->
-                    <div style="background:var(--surface2); padding:14px; border-radius:12px; margin-bottom:12px; opacity:0.8;">
-                        <strong style="color:#ff6b9d;">v1.2</strong> — Фото, арты и мемы в постах<br>
-                        <span style="font-size:12px; color:#aaa;">Возможность прикреплять изображения к постам</span>
-                    </div>
-
-                    <div style="margin:16px 0 8px; padding:12px; background:#1a1a26; border-radius:10px; font-size:12px; color:#aaa; text-align:center;">
-                        <strong style="color:#4dc9f6;">Скоро:</strong> Таблица лидеров • Бейджи за достижения • Группы и клубы
-                    </div>
-
-                    <button class="btn-full" onclick="this.closest('.modal-overlay').remove()">Закрыть</button>
+            modal.innerHTML = `<div class="modal" style="max-width:460px;">
+                <h2 style="text-align:center;">にじ Niji — Обновления</h2>
+                <div style="background:var(--surface2); padding:16px; border-radius:12px; margin-bottom:14px;">
+                    <strong style="color:#4dc9f6;">v1.6</strong> — Система подписок, верификация, уровни репутации<br>
+                    <span style="font-size:12px;">➕ Подписки на людей, верификация через админа, уровни за репутацию</span>
                 </div>
-            `;
+                <div style="background:var(--surface2); padding:14px; border-radius:12px; margin-bottom:12px;">
+                    <strong style="color:#ff6b9d;">v1.5</strong> — Вкладка "Люди" + полная статистика
+                </div>
+                <div style="background:var(--surface2); padding:14px; border-radius:12px;">
+                    <strong style="color:#ff6b9d;">v1.4</strong> — Удаление постов, фото в постах, голосовые сообщения
+                </div>
+                <button class="btn-full" style="margin-top:16px;" onclick="this.closest('.modal-overlay').remove()">Закрыть</button>
+            </div>`;
             document.body.appendChild(modal);
-
-            // Закрытие по клику на фон
-            modal.addEventListener('click', function(e) {
-                if (e.target === modal) modal.remove();
-            });
+            modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
         }
-        function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-        function color(s) { const c = ['#ff6b6b','#4ecdc4','#45b7d1','#f9ca24','#6c5ce7','#a29bfe','#ff9ff3']; let h = 0; for (let i = 0; i < s.length; i++) h = s.charCodeAt(i) + ((h << 5) - h); return c[Math.abs(h) % c.length]; }
-        document.getElementById('authModal').addEventListener('click', function(e) { if (e.target === this) closeAuth(); });
-        document.getElementById('chatModal').addEventListener('click', function(e) { if (e.target === this) closeChat(); });
-        document.addEventListener('click', function(e) { if (!e.target.closest('.user-badge')) document.getElementById('userDropdown')?.classList.remove('show'); });
+
+        // --- Инициализация ---
+        async function init() {
+            const saved = localStorage.getItem('niji_session');
+            if (saved) {
+                const { data } = await SB.from('users').select('*').eq('login', saved).single();
+                if (data) {
+                    currentUser = data;
+                    await SB.from('users').update({ last_seen: new Date().toISOString() }).eq('login', saved);
+                    const today = new Date().toISOString().split('T')[0];
+                    const lastLoginDate = data.last_seen ? data.last_seen.split('T')[0] : null;
+                    if (lastLoginDate !== today) await addReputation(saved, 5, 'ежедневный вход');
+                } else localStorage.removeItem('niji_session');
+            }
+            renderAll();
+            await renderPage();
+            await stats();
+            setTimeout(() => stats(), 1500);
+        }
+        document.getElementById('authModal')?.addEventListener('click', (e) => { if (e.target === e.currentTarget) closeAuth(); });
+        document.getElementById('chatModal')?.addEventListener('click', (e) => { if (e.target === e.currentTarget) closeChat(); });
+        document.addEventListener('click', (e) => { if (!e.target.closest('.user-badge')) document.getElementById('userDropdown')?.classList.remove('show'); });
         init();
     </script>
 </body>
