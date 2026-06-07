@@ -125,7 +125,6 @@ alter publication supabase_realtime add table anime_room_chat;
 -->
 <html lang="ru">
 <head>
-    <link rel="stylesheet" href="style.css">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>にじ Niji</title>
@@ -274,6 +273,16 @@ alter publication supabase_realtime add table anime_room_chat;
             display: none;
             animation: notifSlideIn 0.18s ease;
         }
+        
+        @keyframes likepop {
+            0%   { transform: scale(1); }
+            40%  { transform: scale(1.5); }
+            70%  { transform: scale(0.9); }
+            100% { transform: scale(1); }
+        }
+        .cl-like-btn { transition: color 0.2s ease; }
+        .cl-like-btn.liked { color: var(--pink) !important; }
+        .cl-like-btn:active { transform: scale(0.92); }
         @keyframes notifSlideIn {
             from { opacity:0; transform:translateY(-8px) scale(0.97); }
             to   { opacity:1; transform:translateY(0) scale(1); }
@@ -746,9 +755,9 @@ alter publication supabase_realtime add table anime_room_chat;
                     <div style="cursor:pointer;" onclick="goProfile('${post.user_login}')">${buildAvatarHtml(postAuthor, 34, 14)}</div>
                     <div style="flex:1;">
                         <div class="post-name" onclick="goProfile('${post.user_login}')">
-                            ${esc(post.username)}
+                            <span data-user-login="${post.user_login}">${esc(post.username)}</span>
                             ${post.is_verified ? `<span style="margin-left:4px; font-size:16px; filter: drop-shadow(0 0 4px #4dc9f6);">💎</span>` : ''}
-                            <span style="font-size:10px; background:linear-gradient(90deg, #ff6b9d, #4dc9f6); color:#fff; padding:2px 8px; border-radius:10px; margin-left:6px; font-weight:600; box-shadow:0 0 6px rgba(255,107,157,0.4);">LVL ${post.level || 1}</span>
+                            <span data-lvl-badge style="font-size:10px; background:linear-gradient(90deg, #ff6b9d, #4dc9f6); color:#fff; padding:2px 8px; border-radius:10px; margin-left:6px; font-weight:600; box-shadow:0 0 6px rgba(255,107,157,0.4);">LVL ${post.level || 1}</span>
                             ${devBadge(post.user_login)}
                         </div>
                         <div class="post-time">${time}</div>
@@ -784,6 +793,26 @@ alter publication supabase_realtime add table anime_room_chat;
             if (lc) lc.textContent = likes || 0;
             const cc = document.getElementById('cc-' + postId);
             if (cc) cc.textContent = coms || 0;
+
+            // Обновляем уровень в посте актуальным значением из БД
+            const postEl = document.getElementById('post-' + postId);
+            if (postEl) {
+                const lvlBadge = postEl.querySelector('[data-lvl-badge]');
+                if (lvlBadge) {
+                    // Берём user_login из поста чтобы запросить актуальный level
+                    const userLoginEl = postEl.querySelector('[data-user-login]');
+                    const userLogin = userLoginEl ? userLoginEl.dataset.userLogin : null;
+                    if (userLogin) {
+                        // Используем кэш чтобы не делать запрос для каждого поста
+                        if (!loadPostStats._lvlCache) loadPostStats._lvlCache = {};
+                        if (!loadPostStats._lvlCache[userLogin]) {
+                            const { data: u } = await SB.from('users').select('level').eq('login', userLogin).single();
+                            loadPostStats._lvlCache[userLogin] = u ? (u.level || 1) : 1;
+                        }
+                        lvlBadge.textContent = 'LVL ' + loadPostStats._lvlCache[userLogin];
+                    }
+                }
+            }
 
             // Восстанавливаем состояние кнопки лайка
             const btn = document.querySelector(`#post-${postId} .act`);
@@ -828,7 +857,12 @@ alter publication supabase_realtime add table anime_room_chat;
             if (comments && comments.length > 0) {
                 const ids = comments.map(c => c.id);
                 const { data: clData } = await SB.from('comment_likes').select('comment_id, user_login').in('comment_id', ids);
+                // Считаем только уникальные user_login на каждый комментарий (защита от дублей в БД)
+                const seenLikes = {};
                 (clData || []).forEach(cl => {
+                    const key = cl.comment_id + '_' + cl.user_login;
+                    if (seenLikes[key]) return;
+                    seenLikes[key] = true;
                     commentLikesMap[cl.comment_id] = (commentLikesMap[cl.comment_id] || 0) + 1;
                     if (cl.user_login === currentUser?.login) myCommentLikes.add(cl.comment_id);
                 });
@@ -864,10 +898,13 @@ alter publication supabase_realtime add table anime_room_chat;
                         const hasReplies = replies.length > 0;
                         const repliesId = `replies-${c.id}`;
 
-                        const likeBtn = currentUser
+                        const isOwnComment = currentUser && c.user_login === currentUser.login;
+                        const likeBtn = currentUser && !isOwnComment
                             ? `<button id="cl-btn-${c.id}" onclick="toggleCommentLike('${c.id}','${postId}')"
-                                style="background:none;border:none;font-size:11px;cursor:pointer;padding:0;font-family:inherit;display:inline-flex;align-items:center;gap:3px;color:${iLiked ? 'var(--pink)' : 'var(--text2)'};"
-                               >❤️ <span id="cl-${c.id}">${likeCount > 0 ? likeCount : ''}</span></button>` : '';
+                                class="cl-like-btn${iLiked ? ' liked' : ''}"
+                                style="background:none;border:none;font-size:13px;cursor:pointer;padding:2px 6px;font-family:inherit;display:inline-flex;align-items:center;gap:3px;border-radius:10px;color:${iLiked ? 'var(--pink)' : 'var(--text2)'};"
+                               >❤️ <span id="cl-${c.id}" style="font-size:11px;">${likeCount > 0 ? likeCount : ''}</span></button>`
+                            : likeCount > 0 ? `<span style="font-size:11px;color:var(--text2);display:inline-flex;align-items:center;gap:3px;">❤️ <span>${likeCount}</span></span>` : '';
                         const replyBtn = currentUser
                             ? `<button onclick="setReplyTarget('${postId}','${c.id}','${c.username.replace(/'/g,"\\'")}')
                                 " style="background:none;border:none;color:var(--text2);font-size:11px;cursor:pointer;padding:0;font-family:inherit;margin-left:8px;">↩ Ответить</button>` : '';
@@ -953,29 +990,52 @@ alter publication supabase_realtime add table anime_room_chat;
             if (btn) btn.innerHTML = btn.innerHTML.replace(isOpen ? '▲' : '▼', isOpen ? '▼' : '▲');
         }
 
+        // Блокировка от двойного нажатия на лайк комментария
+        const _commentLikeLock = new Set();
+
         async function toggleCommentLike(commentId, postId) {
             if (!currentUser) return toast('Войдите!', true);
-            const { data: exist } = await SB.from('comment_likes')
-                .select('*').eq('comment_id', commentId).eq('user_login', currentUser.login).single();
+            // Защита от само-лайка
+            const { data: commentData } = await SB.from('comments').select('user_login').eq('id', commentId).single();
+            if (commentData && commentData.user_login === currentUser.login) return toast('Нельзя лайкать свои комментарии 😅', true);
+            // Защита от двойного нажатия
+            const lockKey = commentId + '_' + currentUser.login;
+            if (_commentLikeLock.has(lockKey)) return;
+            _commentLikeLock.add(lockKey);
             const btn = document.getElementById('cl-btn-' + commentId);
             const countEl = document.getElementById('cl-' + commentId);
-            if (exist) {
-                await SB.from('comment_likes').delete().eq('id', exist.id);
-                if (btn) btn.style.color = 'var(--text2)';
-                if (countEl) { const n = parseInt(countEl.textContent || '0') - 1; countEl.textContent = n > 0 ? n : ''; }
-            } else {
-                await SB.from('comment_likes').insert([{ comment_id: parseInt(commentId), user_login: currentUser.login }]);
-                if (btn) btn.style.color = 'var(--pink)';
-                if (countEl) { const n = parseInt(countEl.textContent || '0') + 1; countEl.textContent = n; }
-                const { data: com } = await SB.from('comments').select('user_login, text').eq('id', commentId).single();
-                if (com && com.user_login !== currentUser.login) {
-                    const preview = (com.text || '').substring(0, 40);
-                    await SB.from('notifications').insert([{
-                        user_login: com.user_login, type: 'like',
-                        text: `❤️ ${currentUser.username} лайкнул(а) твой комментарий: "${preview}${(com.text||'').length > 40 ? '...' : ''}"`,
-                        from_login: currentUser?.login || null, is_read: false
-                    }]);
+            try {
+                // Выбираем ВСЕ лайки этого юзера на этот комментарий (на случай дублей)
+                const { data: allExist } = await SB.from('comment_likes')
+                    .select('*').eq('comment_id', commentId).eq('user_login', currentUser.login);
+                if (allExist && allExist.length > 0) {
+                    // Удаляем все (заодно чистим старые дубли)
+                    await SB.from('comment_likes').delete()
+                        .eq('comment_id', commentId).eq('user_login', currentUser.login);
+                    if (btn) { btn.style.color = 'var(--text2)'; btn.classList.remove('liked'); }
+                    if (countEl) { const n = parseInt(countEl.textContent || '0') - 1; countEl.textContent = n > 0 ? n : ''; }
+                } else {
+                    await SB.from('comment_likes').insert([{ comment_id: parseInt(commentId), user_login: currentUser.login }]);
+                    if (btn) {
+                        btn.style.color = 'var(--pink)';
+                        btn.classList.add('liked');
+                        btn.style.animation = 'none';
+                        btn.offsetHeight; // reflow
+                        btn.style.animation = 'likepop 0.35s ease';
+                    }
+                    if (countEl) { const n = parseInt(countEl.textContent || '0') + 1; countEl.textContent = n; }
+                    const { data: com } = await SB.from('comments').select('user_login, text').eq('id', commentId).single();
+                    if (com && com.user_login !== currentUser.login) {
+                        const preview = (com.text || '').substring(0, 40);
+                        await SB.from('notifications').insert([{
+                            user_login: com.user_login, type: 'like',
+                            text: `❤️ ${currentUser.username} лайкнул(а) твой комментарий: "${preview}${(com.text||'').length > 40 ? '...' : ''}"`,
+                            from_login: currentUser?.login || null, is_read: false
+                        }]);
+                    }
                 }
+            } finally {
+                _commentLikeLock.delete(lockKey);
             }
         }
         async function renderMessages() {
@@ -1922,12 +1982,19 @@ alter publication supabase_realtime add table anime_room_chat;
             }
 
             const tagMatch = text.match(/#(\S+)/);
+
+            // Перед публикацией берём свежий level из базы
+            const { data: freshUser } = await SB.from('users').select('level, reputation').eq('login', currentUser.login).single();
+            if (freshUser) { currentUser.level = freshUser.level; currentUser.reputation = freshUser.reputation; }
+
             const { error } = await SB.from('posts').insert([{
                 user_login: currentUser.login,
                 username: currentUser.username,
                 content: text || '',
                 tag: tagMatch ? tagMatch[1] : '',
-                image_url: imageUrl
+                image_url: imageUrl,
+                level: currentUser.level || 1,
+                avatar_url: currentUser.avatar_url || null
             }]);
 
             if (error) {
@@ -3774,8 +3841,9 @@ create table if not exists notifications (
                 <h2 style="margin-bottom:16px;">🎬 Создать комнату</h2>
                 <input id="roomTitle" placeholder="Название комнаты (например: Смотрим Наруто)" style="margin-bottom:8px;">
                 <input id="roomAnime" placeholder="Аниме (например: Наруто, сезон 1)" style="margin-bottom:8px;">
-                <input id="roomVideoUrl" placeholder="Ссылка на видео (MP4, YouTube, Kodik...)" style="margin-bottom:4px;">
-                <div style="font-size:11px;color:var(--text2);margin-bottom:14px;">Поддерживаются прямые MP4-ссылки. YouTube и другие — через iframe (вставь embed-ссылку)</div>
+                <input id="roomVideoUrl" placeholder="Ссылка на видео (MP4, VK, Kodik, Sibnet...)" style="margin-bottom:4px;">
+                <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">MP4: прямая ссылка. VK: vk.com/video-123_456. Kodik/Sibnet: embed</div>
+                <div style="font-size:11px;background:rgba(255,71,87,0.08);border:1px solid rgba(255,71,87,0.25);border-radius:8px;padding:7px 10px;margin-bottom:14px;color:#ff8a8a;">⚠️ YouTube не поддерживается — используй Kodik или MP4</div>
                 <button class="btn-full" onclick="createRoom()">🚀 Создать</button>
                 <button class="btn-link" onclick="document.getElementById('createRoomModal').remove()">Отмена</button>
             </div>`;
@@ -3911,14 +3979,43 @@ create table if not exists notifications (
             let videoHtml = '';
             if (room.video_url) {
                 const url = room.video_url;
-                const isMp4 = url.match(/\.mp4|video\/|kodik|sibnet/i) || url.includes('.mp4');
-                if (url.includes('youtube.com/embed') || url.includes('youtu.be') || url.includes('iframe')) {
-                    // Embed iframe (YouTube embed или другой)
-                    const embedUrl = url.replace('watch?v=', 'embed/').replace('youtu.be/', 'youtube.com/embed/');
-                    videoHtml = `<iframe id="roomVideo" src="${esc(embedUrl)}" style="width:100%;aspect-ratio:16/9;border:none;border-radius:10px;" allowfullscreen allow="autoplay; fullscreen"></iframe>`;
+                const isYoutube = url.includes('youtube.com') || url.includes('youtu.be');
+                const isVk = url.includes('vk.com/video') || url.includes('vk.com/clip') || url.includes('vkvideo.ru');
+                const isIframe = url.includes('youtube.com/embed') || url.includes('iframe') || url.includes('kodik.info') || url.includes('kodik.biz') || url.includes('aniboom') || url.includes('sibnet') || url.includes('vk.com/video_ext') || url.includes('vkvideo.ru');
+                if (isYoutube) {
+                    let embedUrl = url;
+                    if (url.includes('watch?v=')) embedUrl = url.replace('watch?v=', 'embed/').replace('youtube.com/watch', 'youtube.com/embed');
+                    else if (url.includes('youtu.be/')) embedUrl = url.replace('youtu.be/', 'youtube.com/embed/');
+                    if (!embedUrl.includes('?')) embedUrl += '?autoplay=0';
+                    else embedUrl += '&autoplay=0';
+
+                    videoHtml = `<div style="position:relative;width:100%;aspect-ratio:16/9;">
+                        <iframe id="roomVideo" src="${esc(embedUrl)}"
+                            style="width:100%;height:100%;border:none;border-radius:10px;display:block;"
+                            allowfullscreen allow="autoplay; fullscreen; encrypted-media"></iframe>
+                    </div>`;
+                } else if (isVk) {
+                    // ВКонтакте — конвертируем ссылку в embed
+                    // Форматы: vk.com/video-123_456, vk.com/video?z=video-123_456, vkvideo.ru/video-123_456
+                    let embedUrl = url;
+                    if (!url.includes('video_ext.php')) {
+                        const match = url.match(/video(-?\d+)_(\d+)/);
+                        if (match) {
+                            embedUrl = `https://vk.com/video_ext.php?oid=${match[1]}&id=${match[2]}&hd=2&js_api=1`;
+                        }
+                    } else if (!embedUrl.includes('js_api')) {
+                        embedUrl += (embedUrl.includes('?') ? '&' : '?') + 'js_api=1';
+                    }
+                    videoHtml = `<iframe id="roomVideo" src="${esc(embedUrl)}"
+                        style="width:100%;aspect-ratio:16/9;border:none;border-radius:10px;display:block;"
+                        allowfullscreen allow="autoplay; fullscreen; encrypted-media"
+                        referrerpolicy="no-referrer-when-downgrade"></iframe>`;
+                } else if (isIframe) {
+                    // Другой embed iframe (Kodik и т.д.)
+                    videoHtml = `<iframe id="roomVideo" src="${esc(url)}" style="width:100%;aspect-ratio:16/9;border:none;border-radius:10px;display:block;" allowfullscreen allow="autoplay; fullscreen; encrypted-media"></iframe>`;
                 } else {
                     // Прямой MP4 или другой
-                    videoHtml = `<video id="roomVideo" src="${esc(url)}" style="width:100%;aspect-ratio:16/9;border-radius:10px;background:#000;display:block;" controls preload="metadata"
+                    videoHtml = `<video id="roomVideo" src="${esc(url)}" style="width:100%;aspect-ratio:16/9;border-radius:10px;background:#000;display:block;" controls preload="metadata" playsinline webkit-playsinline
                         ontimeupdate="if(${isOwner})syncVideoState(this)"
                         onplay="if(${isOwner})syncVideoPlaying(true,this.currentTime)"
                         onpause="if(${isOwner})syncVideoPlaying(false,this.currentTime)">
@@ -3955,13 +4052,21 @@ create table if not exists notifications (
 
                 <!-- Левая: видео + управление -->
                 <div style="display:flex;flex-direction:column;gap:10px;">
-                    <div style="background:rgba(10,10,15,0.9);border:1px solid rgba(255,255,255,0.07);border-radius:16px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.6);">
+                    <div style="position:relative;background:rgba(10,10,15,0.9);border:1px solid rgba(255,255,255,0.07);border-radius:16px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.6);">
                         ${videoHtml}
+                        ${!isOwner ? `<div id="syncPlayBtn" onclick="syncPlayBtn_click()" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,0.7);border-radius:16px;flex-direction:column;align-items:center;justify-content:center;gap:10px;cursor:pointer;z-index:10;">
+                            <div style="font-size:48px;">▶</div>
+                            <div style="font-size:14px;font-weight:700;color:#fff;">Нажми чтобы смотреть вместе</div>
+                        </div>` : ''}
                     </div>
-                    ${isOwner && room.video_url && !room.video_url.includes('embed') && !room.video_url.includes('youtube') ? `
+                    ${room.video_url && !room.video_url.includes('youtube.com/embed') && !room.video_url.includes('youtu.be') && !room.video_url.includes('iframe') ? `
                     <div style="display:flex;gap:8px;">
-                        <button onclick="ownerPlay()" style="flex:1;background:linear-gradient(135deg,#2ed573,#1e8449);color:#fff;border:none;border-radius:12px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 4px 15px rgba(46,213,115,0.3);transition:transform 0.2s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">▶ Play для всех</button>
-                        <button onclick="ownerPause()" style="flex:1;background:rgba(255,255,255,0.06);color:var(--text);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:10px;font-size:13px;cursor:pointer;font-family:inherit;transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.06)'">⏸ Пауза для всех</button>
+                        <button onclick="${isOwner ? 'ownerPlay()' : 'alert(\"Только создатель комнаты может управлять воспроизведением\")'}" style="flex:1;background:${isOwner ? 'linear-gradient(135deg,#2ed573,#1e8449)' : 'rgba(46,213,115,0.15)'};color:${isOwner ? '#fff' : '#2ed573'};border:${isOwner ? 'none' : '1px solid rgba(46,213,115,0.3)'};border-radius:12px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:${isOwner ? '0 4px 15px rgba(46,213,115,0.3)' : 'none'};transition:transform 0.2s;opacity:${isOwner ? '1' : '0.6'};" ${isOwner ? 'onmouseover="this.style.transform=\'scale(1.02)\'" onmouseout="this.style.transform=\'scale(1)\'"' : ''}>▶ Play для всех</button>
+                        <button onclick="${isOwner ? 'ownerPause()' : 'alert(\"Только создатель комнаты может управлять воспроизведением\")'}" style="flex:1;background:rgba(255,255,255,0.06);color:var(--text);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:10px;font-size:13px;cursor:pointer;font-family:inherit;transition:all 0.2s;opacity:${isOwner ? '1' : '0.6'};" ${isOwner ? 'onmouseover="this.style.background=\'rgba(255,255,255,0.1)\'" onmouseout="this.style.background=\'rgba(255,255,255,0.06)\'"' : ''}>⏸ Стоп для всех</button>
+                        <button onclick="toggleFullscreen()" style="background:rgba(255,255,255,0.06);color:var(--text);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:10px 14px;font-size:16px;cursor:pointer;transition:all 0.2s;" title="Полный экран" onmouseover="this.style.background='rgba(255,255,255,0.12)'" onmouseout="this.style.background='rgba(255,255,255,0.06)'">⛶</button>
+                    </div>` : room.video_url ? `
+                    <div style="display:flex;justify-content:flex-end;">
+                        <button onclick="toggleFullscreen()" style="background:rgba(255,255,255,0.06);color:var(--text);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:8px 16px;font-size:15px;cursor:pointer;transition:all 0.2s;" title="Полный экран" onmouseover="this.style.background='rgba(255,255,255,0.12)'" onmouseout="this.style.background='rgba(255,255,255,0.06)'">⛶ Полный экран</button>
                     </div>` : ''}
                 </div>
 
@@ -4024,8 +4129,9 @@ create table if not exists notifications (
             modal.innerHTML = `
             <div class="modal" style="width:420px;">
                 <h2 style="margin-bottom:12px;">📎 Сменить видео</h2>
-                <input id="newVideoUrl" placeholder="Ссылка на видео (MP4 или YouTube embed)" style="margin-bottom:4px;">
-                <div style="font-size:11px;color:var(--text2);margin-bottom:14px;">MP4: прямая ссылка. YouTube: youtube.com/embed/ID</div>
+                <input id="newVideoUrl" placeholder="Ссылка на видео (MP4, VK, Kodik, Sibnet...)" style="margin-bottom:4px;">
+                <div style="font-size:11px;color:var(--text2);margin-bottom:8px;">MP4: прямая ссылка. VK: vk.com/video-123_456. Kodik/Sibnet: embed-ссылка</div>
+                <div style="font-size:11px;background:rgba(255,71,87,0.08);border:1px solid rgba(255,71,87,0.25);border-radius:8px;padding:8px 10px;margin-bottom:14px;color:#ff8a8a;line-height:1.5;">⚠️ <strong>YouTube не работает</strong> — они блокируют встраивание в сторонние сайты. Используй Kodik или MP4.</div>
                 <button class="btn-full" onclick="setRoomVideo()">Сохранить</button>
                 <button class="btn-link" onclick="document.getElementById('setVideoModal').remove()">Отмена</button>
             </div>`;
@@ -4040,6 +4146,18 @@ create table if not exists notifications (
             document.getElementById('setVideoModal')?.remove();
             toast('✅ Видео обновлено!');
             await renderRoomInside();
+        }
+
+        // Полноэкранный режим
+        function toggleFullscreen() {
+            const video = document.getElementById('roomVideo');
+            if (!video) return;
+            const el = video.tagName === 'IFRAME' ? video : video;
+            if (!document.fullscreenElement) {
+                (el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen).call(el);
+            } else {
+                (document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen).call(document);
+            }
         }
 
         // Синхронизация состояния видео (владелец → все)
@@ -4059,22 +4177,88 @@ create table if not exists notifications (
             }).eq('id', currentRoom);
         }
 
+        // Управление ВК плеером через postMessage
+        function vkPlayerSend(action) {
+            const iframe = document.getElementById('roomVideo');
+            if (!iframe || iframe.tagName !== 'IFRAME') return;
+            const src = iframe.src || '';
+            if (!src.includes('vk.com')) return;
+            try {
+                iframe.contentWindow.postMessage(JSON.stringify({ method: action }), 'https://vk.com');
+            } catch(e) {}
+        }
+
+        async function syncPlayBtn_click() {
+            const btn = document.getElementById('syncPlayBtn');
+            if (btn) btn.style.display = 'none';
+            const { data: room } = await SB.from('anime_rooms').select('*').eq('id', currentRoom).single();
+            if (room) applyVideoState(room);
+        }
+
         async function ownerPlay() {
-            const video = document.getElementById('roomVideo');
-            if (video) { video.play(); await syncVideoPlaying(true, video.currentTime); }
+            const el = document.getElementById('roomVideo');
+            if (!el) return toast('Видео не найдено', true);
+            if (el.tagName === 'VIDEO') {
+                try { await el.play(); } catch(e) { toast('Ошибка: ' + e.message, true); return; }
+                await syncVideoPlaying(true, el.currentTime || 0);
+            } else {
+                // iframe — пробуем postMessage для ВК
+                vkPlayerSend('play');
+                await syncVideoPlaying(true, 0);
+                toast('▶ Сигнал Play отправлен всем');
+            }
         }
         async function ownerPause() {
-            const video = document.getElementById('roomVideo');
-            if (video) { video.pause(); await syncVideoPlaying(false, video.currentTime); }
+            const el = document.getElementById('roomVideo');
+            if (!el) return toast('Видео не найдено', true);
+            if (el.tagName === 'VIDEO') {
+                try { el.pause(); } catch(e) {}
+                await syncVideoPlaying(false, el.currentTime || 0);
+            } else {
+                vkPlayerSend('pause');
+                await syncVideoPlaying(false, 0);
+                toast('⏸ Сигнал Стоп отправлен всем');
+            }
         }
 
         function applyVideoState(room) {
-            const video = document.getElementById('roomVideo');
-            if (!video || video.tagName !== 'VIDEO') return;
-            const diff = Math.abs(video.currentTime - room.playback_time);
-            if (diff > 2) video.currentTime = room.playback_time;
-            if (room.is_playing && video.paused) video.play().catch(() => {});
-            if (!room.is_playing && !video.paused) video.pause();
+            const el = document.getElementById('roomVideo');
+            if (!el) return;
+            if (el.tagName === 'VIDEO') {
+                const diff = Math.abs(el.currentTime - room.playback_time);
+                if (diff > 2) el.currentTime = room.playback_time;
+                if (room.is_playing && el.paused) {
+                    el.play().catch(() => {
+                        const btn = document.getElementById('syncPlayBtn');
+                        if (btn) btn.style.display = 'flex';
+                    });
+                }
+                if (!room.is_playing && !el.paused) el.pause();
+            } else {
+                // iframe — управляем через postMessage (работает для ВК с js_api=1)
+                const isOwnerNow = room.owner_login === currentUser?.login || DEVS.includes(currentUser?.login?.toLowerCase());
+                if (room.is_playing) {
+                    vkPlayerSend('play');
+                    if (!isOwnerNow) showRoomNotif('▶ Создатель нажал Play');
+                } else {
+                    vkPlayerSend('pause');
+                    if (!isOwnerNow) showRoomNotif('⏸ Создатель поставил паузу');
+                }
+            }
+        }
+
+        function showRoomNotif(text) {
+            let el = document.getElementById('roomNotif');
+            if (!el) {
+                el = document.createElement('div');
+                el.id = 'roomNotif';
+                el.style.cssText = 'position:fixed;top:70px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#ff6b9d,#c44569);color:#fff;padding:10px 20px;border-radius:20px;font-size:13px;font-weight:700;z-index:9999;opacity:0;pointer-events:none;transition:opacity 0.3s;text-align:center;max-width:280px;box-shadow:0 4px 20px rgba(255,107,157,0.5);';
+                document.body.appendChild(el);
+            }
+            el.textContent = text;
+            el.style.opacity = '1';
+            clearTimeout(el._t);
+            el._t = setTimeout(() => { el.style.opacity = '0'; }, 4000);
         }
 
         async function sendRoomChat() {
@@ -4148,7 +4332,6 @@ create table if not exists notifications (
             // Realtime синхронизация видео (только для зрителей)
             roomSyncChannel = SB.channel('room_sync_' + roomId)
                 .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'anime_rooms', filter: `id=eq.${roomId}` }, payload => {
-                    const { data: room } = payload.new;
                     if (payload.new) applyVideoState(payload.new);
                 })
                 .subscribe();
@@ -4165,4 +4348,4 @@ create table if not exists notifications (
         init();
     </script>
 </body>
-</html>
+  </html>
