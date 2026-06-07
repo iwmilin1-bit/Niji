@@ -1,16 +1,16 @@
 :root {
-    --bg: #0c0719;
-    --surface: #1f1638;
-    --surface2: #2c2252;
-    --pink: #ff4dff;
-    --blue: #00f2ff;
-    --purple: #c77eff;
-    --accent: #ff9ff3;
-    --text: #f8e8ff;
-    --text2: #d4b8ff;
-    --border: #5a4a8a;
-    --glow-pink: 0 0 15px rgba(255,77,255,0.6);
-    --glow-blue: 0 0 15px rgba(0,242,255,0.6);
+    --bg: #0b0619;
+    --surface: #1a1438;
+    --surface2: #2c1f55;
+    --pink: #ff2dff;
+    --blue: #00f0ff;
+    --purple: #c26eff;
+    --accent: #ff8cff;
+    --text: #f8e9ff;
+    --text2: #d0b0ff;
+    --border: #6a4faa;
+    --glow-pink: 0 0 25px rgba(255,45,255,0.7);
+    --glow-blue: 0 0 25px rgba(0,240,255,0.7);
 }
 
 * { margin:0; padding:0; box-sizing:border-box; }
@@ -21,107 +21,160 @@ body {
     color: var(--text);
     min-height: 100vh;
     background-image: 
-        radial-gradient(circle at 30% 20%, rgba(255,77,255,0.12) 0%, transparent 50%),
-        radial-gradient(circle at 70% 80%, rgba(0,242,255,0.12) 0%, transparent 50%);
+        radial-gradient(circle at 20% 30%, rgba(255,45,255,0.18) 0%, transparent 60%),
+        radial-gradient(circle at 80% 70%, rgba(0,240,255,0.15) 0%, transparent 60%);
 }
 
-/* Красивая шапка */
+/* Шапка — аниме-премиум */
 .header {
-    background: linear-gradient(135deg, #1f1638, #2c2252, #3a2a6b);
-    border-bottom: 3px solid var(--purple);
-    padding: 14px 20px;
-    box-shadow: 0 4px 25px rgba(199,126,255,0.25);
+    background: linear-gradient(135deg, #1a1438, #2c1f55, #3a2a70);
+    border-bottom: 4px solid var(--purple);
+    padding: 16px 20px;
+    box-shadow: 0 8px 40px rgba(194,110,255,0.35);
+    position: sticky;
+    top: 0;
+    z-index: 100;
 }
 
 .logo {
-    font-size: 28px;
+    font-size: 32px;
     font-weight: 900;
-    background: linear-gradient(90deg, #ff4dff, #00f2ff, #c77eff);
+    letter-spacing: -2px;
+    background: linear-gradient(90deg, #ff2dff, #00f0ff, #c26eff, #ff8cff);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
-    text-shadow: 0 0 25px rgba(255,77,255,0.7);
-    letter-spacing: -1px;
+    text-shadow: 0 0 30px rgba(255,45,255,0.8);
+    transition: transform 0.3s ease;
 }
 
-/* Карточки — конфетки */
+.logo:hover { transform: scale(1.08) rotate(3deg); }
+
+/* Карточки постов */
 .card {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 18px;
-    padding: 16px;
-    margin-bottom: 14px;
-    box-shadow: 0 8px 30px rgba(0,0,0,0.4);
-    transition: all 0.3s ease;
+    border-radius: 20px;
+    padding: 18px;
+    margin-bottom: 16px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+    transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+    position: relative;
+    overflow: hidden;
+}
+
+.card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(255,45,255,0.08), rgba(0,240,255,0.05));
+    opacity: 0;
+    transition: opacity 0.4s;
+    pointer-events: none;
 }
 
 .card:hover {
-    transform: translateY(-6px) scale(1.02);
-    box-shadow: 0 20px 40px rgba(199,126,255,0.3);
+    transform: translateY(-8px) scale(1.02);
+    box-shadow: 0 25px 60px rgba(194,110,255,0.4);
     border-color: var(--purple);
+}
+
+.card:hover::before { opacity: 1; }
+
+/* DEV бейдж */
+.dev-badge {
+    background: linear-gradient(135deg, #1a1438, #3a2a70);
+    border: 2px solid #00f0ff;
+    color: #00f0ff;
+    font-size: 9.5px;
+    padding: 4px 10px;
+    border-radius: 9999px;
+    font-weight: 900;
+    box-shadow: 0 0 15px rgba(0,240,255,0.7);
+    letter-spacing: 1px;
 }
 
 /* Кнопки */
 .btn-pink {
-    background: linear-gradient(135deg, #ff4dff, #ff9ff3);
+    background: linear-gradient(135deg, #ff2dff, #ff8cff);
     color: white;
-    box-shadow: var(--glow-pink);
     font-weight: 700;
+    box-shadow: var(--glow-pink);
+    transition: all 0.3s ease;
 }
 
 .btn-pink:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 0 25px rgba(255,77,255,0.8);
+    transform: translateY(-4px) scale(1.05);
+    box-shadow: 0 0 35px rgba(255,45,255,0.9);
 }
 
-/* DEV бейдж */
-.dev-badge {
-    background: linear-gradient(135deg, #1f1638, #3a2a6b);
-    border: 2px solid #00f2ff;
-    color: #00f2ff;
-    font-size: 10px;
-    padding: 3px 9px;
-    border-radius: 20px;
-    font-weight: 800;
-    box-shadow: 0 0 12px rgba(0,242,255,0.6);
-    letter-spacing: 0.5px;
+/* Посты с фото */
+.post-image {
+    border-radius: 16px;
+    border: 3px solid var(--purple);
+    box-shadow: 0 15px 40px rgba(194,110,255,0.3);
+    transition: all 0.4s ease;
 }
 
-/* Лайки и реакции */
-.act {
-    transition: all 0.2s ease;
-}
-
-.act.liked {
-    color: #ff4dff;
-    transform: scale(1.3);
-    animation: heartPop 0.4s ease;
-}
-
-@keyframes heartPop {
-    0% { transform: scale(1); }
-    50% { transform: scale(1.6); }
-    100% { transform: scale(1.3); }
+.post-image:hover {
+    transform: scale(1.03);
+    box-shadow: 0 20px 50px rgba(255,45,255,0.45);
 }
 
 /* Чат */
 .msg-sent {
-    background: linear-gradient(135deg, #ff4dff, #c77eff);
-    color: white;
-    border-bottom-right-radius: 6px;
+    background: linear-gradient(135deg, #ff2dff, #c26eff);
+    border-bottom-right-radius: 8px;
+    box-shadow: var(--glow-pink);
 }
 
 .msg-received {
     background: var(--surface2);
     border: 1px solid var(--purple);
+    border-bottom-left-radius: 8px;
 }
 
 /* Уведомления */
 .notif-bell {
-    animation: bellRing 2s infinite;
+    animation: bellRing 2.8s infinite ease-in-out;
 }
 
 @keyframes bellRing {
-    0%, 100% { transform: rotate(0); }
-    25% { transform: rotate(15deg); }
-    75% { transform: rotate(-15deg); }
+    0%, 100% { transform: rotate(0deg); }
+    25% { transform: rotate(22deg); }
+    75% { transform: rotate(-22deg); }
+}
+
+/* Лайки и реакции */
+.act.liked {
+    color: #ff2dff;
+    animation: heartPop 0.5s ease;
+}
+
+@keyframes heartPop {
+    0% { transform: scale(1); }
+    40% { transform: scale(1.6); }
+    100% { transform: scale(1.3); }
+}
+
+/* Дополнительная аниме-красота */
+.nav-tab.active {
+    color: var(--accent);
+    text-shadow: 0 0 15px var(--accent);
+    border-bottom: 3px solid var(--accent);
+}
+
+.tag:hover {
+    background: linear-gradient(135deg, var(--pink), var(--purple));
+    color: white;
+    transform: scale(1.1);
+}
+
+/* Анимация появления */
+.card {
+    animation: cardPop 0.6s ease backwards;
+}
+
+@keyframes cardPop {
+    from { opacity: 0; transform: translateY(40px) scale(0.92); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
 }
