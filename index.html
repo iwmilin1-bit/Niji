@@ -40,6 +40,26 @@ alter table users add column if not exists ban_reason text;
 -- 5. REALTIME для уведомлений (выполни чтобы уведомления приходили мгновенно)
 alter publication supabase_realtime add table notifications;
 
+-- 6. Лайки на комментарии
+create table if not exists comment_likes (
+  id bigint generated always as identity primary key,
+  comment_id bigint not null,
+  user_login text not null,
+  created_at timestamptz default now(),
+  unique(comment_id, user_login)
+);
+alter table comment_likes enable row level security;
+create policy "anyone can insert comment_likes" on comment_likes for insert with check (true);
+create policy "anyone can select comment_likes" on comment_likes for select using (true);
+create policy "anyone can delete comment_likes" on comment_likes for delete using (true);
+
+-- 7. Ответы на комментарии (добавить колонки в comments)
+alter table comments add column if not exists reply_to_id bigint;
+alter table comments add column if not exists reply_to_username text;
+
+-- 8. Голосовые в комментариях
+alter table comments add column if not exists audio_url text;
+
 ===========================================
 -->
 <html lang="ru">
@@ -341,7 +361,7 @@ alter publication supabase_realtime add table notifications;
         <div style="display:flex; align-items:center; gap:12px;">
             <div class="logo" onclick="goHome()">にじ Niji</div>
             <div onclick="showChangelog()" style="background:var(--surface2); color:var(--text2); font-size:11px; padding:2px 9px; border-radius:999px; cursor:pointer; border:1px solid var(--border); user-select:none;">
-                v1.9
+                v2.3
             </div>
         </div>
         <div class="header-right" id="headerRight"></div>
@@ -384,6 +404,10 @@ alter publication supabase_realtime add table notifications;
         let profileTab = 'posts';
         let chatWith = null;
         let chatInterval = null;
+        let isRecording = false;
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let voiceContext = null; // 'chat' | { postId }  — откуда вызвана запись
         async function init() {
             const saved = localStorage.getItem('niji_session');
             if (saved) {
@@ -635,11 +659,14 @@ alter publication supabase_realtime add table notifications;
                 </div>
                 <div class="comments-box" id="comments-${post.id}">
                     <div id="comments-list-${post.id}" style="color:var(--text2);font-size:12px;padding:4px 0 6px;">Загрузка...</div>
-                    ${currentUser ? `<div class="comment-input" style="margin-top:6px;display:flex;align-items:center;gap:7px;">
-                        <input id="ci-${post.id}" placeholder="Написать комментарий..."
-                            style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:15px;padding:6px 12px;color:var(--text);font-size:12px;font-family:inherit;"
-                            onkeydown="if(event.key==='Enter')addComment('${post.id}')">
-                        <button class="btn btn-outline btn-sm" onclick="addComment('${post.id}')">→</button>
+                    ${currentUser ? `<div id="ci-wrap-${post.id}" style="margin-top:6px;">
+                        <div style="display:flex;align-items:center;gap:7px;">
+                            <input id="ci-${post.id}" placeholder="Написать комментарий..."
+                                data-reply-id="" data-reply-name=""
+                                style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:15px;padding:6px 12px;color:var(--text);font-size:12px;font-family:inherit;"
+                                onkeydown="if(event.key==='Enter')addComment('${post.id}')">
+                            <button class="btn btn-outline btn-sm" onclick="addComment('${post.id}')">→</button>
+                        </div>
                     </div>` : ''}
                 </div>
             </div>`;
@@ -658,7 +685,7 @@ alter publication supabase_realtime add table notifications;
             const box = document.getElementById('comments-' + postId);
             if (!box) return;
 
-            // Загружаем аватарки авторов комментариев
+            // Аватарки авторов
             let userMap = {};
             if (comments && comments.length > 0) {
                 const logins = [...new Set(comments.map(c => c.user_login))];
@@ -670,36 +697,127 @@ alter publication supabase_realtime add table notifications;
                 });
             }
 
-            // Рендерим только список комментариев, поле ввода уже встроено в buildPostCard
+            // Лайки на комментарии
+            let commentLikesMap = {};
+            let myCommentLikes = new Set();
+            if (comments && comments.length > 0) {
+                const ids = comments.map(c => c.id);
+                const { data: clData } = await SB.from('comment_likes').select('comment_id, user_login').in('comment_id', ids);
+                (clData || []).forEach(cl => {
+                    commentLikesMap[cl.comment_id] = (commentLikesMap[cl.comment_id] || 0) + 1;
+                    if (cl.user_login === currentUser?.login) myCommentLikes.add(cl.comment_id);
+                });
+            }
+
             const listEl = document.getElementById('comments-list-' + postId);
             if (listEl) {
                 if (!comments || comments.length === 0) {
                     listEl.innerHTML = '<span style="color:var(--text2);font-size:12px;">Комментариев пока нет</span>';
                 } else {
-                    listEl.innerHTML = comments.map(c => {
+                    const roots = comments.filter(c => !c.reply_to_id);
+                    const repliesMap = {};
+                    comments.filter(c => c.reply_to_id).forEach(c => {
+                        if (!repliesMap[c.reply_to_id]) repliesMap[c.reply_to_id] = [];
+                        repliesMap[c.reply_to_id].push(c);
+                    });
+
+                    function renderComment(c, isReply) {
                         const u = userMap[c.user_login] || { login: c.user_login, username: c.username, avatar_url: null };
                         const t = new Date(c.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-                        return `<div style="display:flex;align-items:flex-start;gap:7px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
-                            <div onclick="goProfile('${c.user_login}')" style="cursor:pointer;flex-shrink:0;">${buildAvatarHtml(u, 26, 11)}</div>
+                        const likeCount = commentLikesMap[c.id] || 0;
+                        const iLiked = myCommentLikes.has(c.id);
+                        const nested = (repliesMap[c.id] || []).map(r => renderComment(r, true)).join('');
+                        const likeBtn = currentUser
+                            ? `<button id="cl-btn-${c.id}" onclick="toggleCommentLike('${c.id}','${postId}')"
+                                style="background:none;border:none;font-size:11px;cursor:pointer;padding:0;font-family:inherit;display:inline-flex;align-items:center;gap:3px;color:${iLiked ? 'var(--pink)' : 'var(--text2)'};"
+                               >❤️ <span id="cl-${c.id}">${likeCount > 0 ? likeCount : ''}</span></button>` : '';
+                        const replyBtn = currentUser
+                            ? `<button onclick="setReplyTarget('${postId}','${c.id}','${c.username.replace(/'/g,"\\'")}')
+                                " style="background:none;border:none;color:var(--text2);font-size:11px;cursor:pointer;padding:0;font-family:inherit;margin-left:8px;">↩ Ответить</button>` : '';
+                        return `<div style="display:flex;align-items:flex-start;gap:7px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04);${isReply ? 'padding-left:32px;' : ''}">
+                            <div onclick="goProfile('${c.user_login}')" style="cursor:pointer;flex-shrink:0;">${buildAvatarHtml(u, isReply ? 22 : 26, isReply ? 9 : 11)}</div>
                             <div style="flex:1;min-width:0;">
-                                <span style="font-weight:600;font-size:12px;cursor:pointer;color:var(--text);" onclick="goProfile('${c.user_login}')">${esc(c.username)}</span>
-                                <span style="font-size:10px;color:var(--text2);margin-left:5px;">${t}</span>
-                                <div style="font-size:12px;line-height:1.4;margin-top:2px;word-break:break-word;">${esc(c.text)}</div>
+                                <div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;">
+                                    <span style="font-weight:600;font-size:12px;cursor:pointer;color:var(--text);" onclick="goProfile('${c.user_login}')">${esc(c.username)}</span>
+                                    ${c.reply_to_username ? `<span style="font-size:11px;color:var(--blue);">→ @${esc(c.reply_to_username)}</span>` : ''}
+                                    <span style="font-size:10px;color:var(--text2);">${t}</span>
+                                </div>
+                                ${c.audio_url ? `<audio controls src="${c.audio_url}" style="max-width:100%;height:32px;margin-top:4px;border-radius:20px;display:block;" preload="metadata"></audio>` : ''}
+                                ${c.text ? `<div style="font-size:12px;line-height:1.4;margin-top:2px;word-break:break-word;">${esc(c.text)}</div>` : ''}
+                                <div style="display:flex;align-items:center;margin-top:3px;">${likeBtn}${replyBtn}</div>
                             </div>
-                        </div>`;
-                    }).join('');
+                        </div>${nested}`;
+                    }
+                    listEl.innerHTML = roots.map(c => renderComment(c, false)).join('');
                 }
             }
-            // Убедимся что поле ввода есть (если его ещё нет — добавляем)
-            if (currentUser && !document.getElementById('ci-' + postId)) {
+
+            // Поле ввода
+            if (currentUser && !document.getElementById('ci-wrap-' + postId)) {
                 const inputDiv = document.createElement('div');
-                inputDiv.className = 'comment-input';
-                inputDiv.style.cssText = 'margin-top:6px;display:flex;align-items:center;gap:7px;';
-                inputDiv.innerHTML = `<input id="ci-${postId}" placeholder="Написать комментарий..."
-                    style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:15px;padding:6px 12px;color:var(--text);font-size:12px;font-family:inherit;"
-                    onkeydown="if(event.key==='Enter')addComment('${postId}')">
-                    <button class="btn btn-outline btn-sm" onclick="addComment('${postId}')">→</button>`;
+                inputDiv.id = 'ci-wrap-' + postId;
+                inputDiv.style.cssText = 'margin-top:6px;';
+                inputDiv.innerHTML = buildCommentInput(postId);
                 box.appendChild(inputDiv);
+            }
+        }
+
+        function buildCommentInput(postId, replyToId, replyToUsername) {
+            const placeholder = replyToUsername ? 'Ответить @' + replyToUsername + '...' : 'Написать комментарий...';
+            const replyTag = replyToId
+                ? `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:11px;color:var(--blue);padding:4px 10px;background:rgba(77,201,246,0.08);border-radius:8px;">
+                    ↩ Ответ для <strong>@${esc(replyToUsername)}</strong>
+                    <span onclick="clearReplyTarget('${postId}')" style="cursor:pointer;color:var(--text2);margin-left:auto;font-size:13px;font-weight:700;">✕</span>
+                   </div>` : '';
+            return replyTag + `<div style="display:flex;align-items:center;gap:5px;">
+                <input id="ci-${postId}" placeholder="${placeholder}"
+                    data-reply-id="${replyToId || ''}" data-reply-name="${replyToUsername || ''}"
+                    style="flex:1;background:var(--surface2);border:1px solid ${replyToId ? 'var(--blue)' : 'var(--border)'};border-radius:15px;padding:6px 12px;color:var(--text);font-size:12px;font-family:inherit;transition:border-color 0.2s;"
+                    onkeydown="if(event.key==='Enter')addComment('${postId}')">
+                <button id="voice-btn-${postId}" onclick="toggleVoiceRecording({postId:'${postId}'})"
+                    style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:5px 9px;font-size:15px;cursor:pointer;flex-shrink:0;transition:all 0.2s;"
+                    title="Голосовой комментарий">🎤</button>
+                <button class="btn btn-outline btn-sm" onclick="addComment('${postId}')">→</button>
+            </div>`;
+        }
+
+        function setReplyTarget(postId, commentId, username) {
+            if (!currentUser) return toast('Войдите!', true);
+            const wrap = document.getElementById('ci-wrap-' + postId);
+            if (!wrap) return;
+            wrap.innerHTML = buildCommentInput(postId, commentId, username);
+            const input = document.getElementById('ci-' + postId);
+            if (input) { input.focus(); input.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+        }
+
+        function clearReplyTarget(postId) {
+            const wrap = document.getElementById('ci-wrap-' + postId);
+            if (wrap) wrap.innerHTML = buildCommentInput(postId);
+        }
+
+        async function toggleCommentLike(commentId, postId) {
+            if (!currentUser) return toast('Войдите!', true);
+            const { data: exist } = await SB.from('comment_likes')
+                .select('*').eq('comment_id', commentId).eq('user_login', currentUser.login).single();
+            const btn = document.getElementById('cl-btn-' + commentId);
+            const countEl = document.getElementById('cl-' + commentId);
+            if (exist) {
+                await SB.from('comment_likes').delete().eq('id', exist.id);
+                if (btn) btn.style.color = 'var(--text2)';
+                if (countEl) { const n = parseInt(countEl.textContent || '0') - 1; countEl.textContent = n > 0 ? n : ''; }
+            } else {
+                await SB.from('comment_likes').insert([{ comment_id: parseInt(commentId), user_login: currentUser.login }]);
+                if (btn) btn.style.color = 'var(--pink)';
+                if (countEl) { const n = parseInt(countEl.textContent || '0') + 1; countEl.textContent = n; }
+                const { data: com } = await SB.from('comments').select('user_login, text').eq('id', commentId).single();
+                if (com && com.user_login !== currentUser.login) {
+                    const preview = (com.text || '').substring(0, 40);
+                    await SB.from('notifications').insert([{
+                        user_login: com.user_login, type: 'like',
+                        text: `❤️ ${currentUser.username} лайкнул(а) твой комментарий: "${preview}${(com.text||'').length > 40 ? '...' : ''}"`,
+                        is_read: false
+                    }]);
+                }
             }
         }
         async function renderMessages() {
@@ -903,7 +1021,7 @@ alter publication supabase_realtime add table notifications;
                         📷
                         <input type="file" accept="image/*" style="display:none;" onchange="previewChatPhoto(this)">
                     </label>
-                    <button id="voiceBtn" class="btn btn-outline btn-sm" onclick="toggleVoiceRecording()" style="padding:8px 12px; min-width:42px; font-size:16px;">🎤</button>
+                    <button id="voiceBtn" class="btn btn-outline btn-sm" onclick="toggleVoiceRecording('chat')" style="padding:8px 12px; min-width:42px; font-size:16px;">🎤</button>
                     <button class="btn btn-pink btn-sm" onclick="sendMessage()">→</button>
                 </div>
             </div>`;
@@ -1062,6 +1180,15 @@ alter publication supabase_realtime add table notifications;
             // Убираем ⏳, оставляем пузырь как есть — перерисовка НЕ нужна
             const statusEl = document.getElementById(tempId + '-status');
             if (statusEl) statusEl.innerHTML = `${t} ✓`;
+
+            // Уведомление получателю
+            const msgPreview = msgText ? msgText.substring(0, 50) + (msgText.length > 50 ? '...' : '') : '📷 фото';
+            await SB.from('notifications').insert([{
+                user_login: chatWith.login,
+                type: 'message',
+                text: `✉️ ${currentUser.username} написал(а) тебе: "${msgPreview}"`,
+                is_read: false
+            }]);
         }
         function closeChat() {
             document.getElementById('chatModal').style.display = 'none';
@@ -1070,75 +1197,151 @@ alter publication supabase_realtime add table notifications;
         }
 
         // === Голосовые сообщения ===
-        async function toggleVoiceRecording() {
-            const btn = document.getElementById('voiceBtn');
-            if (!btn || !chatWith || !currentUser) {
-                toast('Ошибка: откройте чат и войдите в аккаунт', true);
+
+        // Запуск/остановка записи. ctx = 'chat' | { postId: '...' }
+        async function toggleVoiceRecording(ctx) {
+            if (!currentUser) return toast('Войдите!', true);
+            const btnId = ctx === 'chat' ? 'voiceBtn' : 'voice-btn-' + ctx.postId;
+            const btn = document.getElementById(btnId);
+
+            if (isRecording) {
+                // Останавливаем
+                if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                    mediaRecorder.stop();
+                    mediaRecorder.stream.getTracks().forEach(t => t.stop());
+                }
                 return;
             }
 
-            if (!isRecording) {
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    mediaRecorder = new MediaRecorder(stream);
-                    audioChunks = [];
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-                    mediaRecorder.ondataavailable = (e) => {
-                        if (e.data.size > 0) audioChunks.push(e.data);
-                    };
+                // Выбираем поддерживаемый формат
+                const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+                    ? 'audio/webm;codecs=opus'
+                    : MediaRecorder.isTypeSupported('audio/webm')
+                    ? 'audio/webm'
+                    : MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')
+                    ? 'audio/ogg;codecs=opus'
+                    : 'audio/mp4';
 
-                    mediaRecorder.onstop = async () => {
-                        await sendVoiceMessage();
-                        isRecording = false;
-                        btn.style.background = '';
-                        btn.innerHTML = '🎤';
-                    };
+                mediaRecorder = new MediaRecorder(stream, { mimeType });
+                audioChunks = [];
+                voiceContext = ctx;
 
-                    mediaRecorder.start();
-                    isRecording = true;
-                    btn.style.background = '#ff4757';
-                    btn.innerHTML = '⏹️';
-                    toast('🎙️ Запись началась. Нажмите ещё раз, чтобы остановить.');
-                } catch (err) {
-                    console.error(err);
-                    toast('Не удалось получить доступ к микрофону. Разрешите доступ в настройках браузера.', true);
-                }
-            } else {
-                if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-                    mediaRecorder.stop();
-                    mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+
+                mediaRecorder.onstop = async () => {
+                    isRecording = false;
+                    if (btn) { btn.style.background = ''; btn.innerHTML = '🎤'; }
+                    await finishVoiceRecording();
+                };
+
+                mediaRecorder.start(100); // timeslice 100ms — получаем данные чаще
+                isRecording = true;
+                if (btn) { btn.style.background = '#ff4757'; btn.innerHTML = '⏹️'; }
+
+                // Показываем таймер записи
+                let sec = 0;
+                const timer = setInterval(() => {
+                    sec++;
+                    if (btn) btn.innerHTML = `⏹️ ${sec}s`;
+                    if (sec >= 120) { // макс 2 минуты
+                        clearInterval(timer);
+                        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                            mediaRecorder.stop();
+                            mediaRecorder.stream.getTracks().forEach(t => t.stop());
+                        }
+                    }
+                    if (!isRecording) clearInterval(timer);
+                }, 1000);
+
+                toast('🎙️ Запись... нажми ещё раз чтобы остановить');
+            } catch(err) {
+                console.error(err);
+                if (err.name === 'NotAllowedError') {
+                    toast('❌ Нет доступа к микрофону — разреши его в браузере', true);
+                } else {
+                    toast('❌ Не удалось начать запись: ' + err.message, true);
                 }
             }
         }
 
-        async function sendVoiceMessage() {
-            if (!chatWith || audioChunks.length === 0) return;
+        async function finishVoiceRecording() {
+            if (!audioChunks.length) return;
+            const mimeType = mediaRecorder?.mimeType || 'audio/webm';
+            const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'mp4' : 'webm';
+            const audioBlob = new Blob(audioChunks, { type: mimeType });
+            audioChunks = [];
 
-            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-            const fileName = `voice_${currentUser.login}_${Date.now()}.webm`;
+            toast('⏳ Сохраняю голосовое...');
 
-            const { data, error } = await SB.storage.from('voice-messages').upload(fileName, audioBlob, {
-                contentType: 'audio/webm'
-            });
+            // Пробуем загрузить в Storage
+            let audioUrl = null;
+            const safeLogin = currentUser.login.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_.-]/g,'');
+            const fileName = `voice/${safeLogin}_${Date.now()}.${ext}`;
 
-            if (error) {
-                toast('Ошибка загрузки аудио: ' + error.message, true);
-                return;
+            try {
+                const { error: upErr } = await SB.storage.from('post-images').upload(fileName, audioBlob, {
+                    contentType: mimeType, upsert: false
+                });
+                if (!upErr) {
+                    const { data: urlData } = SB.storage.from('post-images').getPublicUrl(fileName);
+                    audioUrl = urlData.publicUrl;
+                } else {
+                    // Storage недоступен — конвертируем в base64
+                    audioUrl = await blobToBase64(audioBlob);
+                }
+            } catch(e) {
+                audioUrl = await blobToBase64(audioBlob);
             }
 
-            const { data: urlData } = SB.storage.from('voice-messages').getPublicUrl(fileName);
-            const audioUrl = urlData.publicUrl;
+            if (!audioUrl) return toast('❌ Не удалось сохранить запись', true);
 
-            await SB.from('messages').insert([{
-                sender_login: currentUser.login,
-                sender_username: currentUser.username,
-                receiver_login: chatWith.login,
-                receiver_username: chatWith.username,
-                audio_url: audioUrl
-            }]);
+            if (voiceContext === 'chat') {
+                // Отправка в чат
+                if (!chatWith) return;
+                await SB.from('messages').insert([{
+                    sender_login: currentUser.login,
+                    sender_username: currentUser.username,
+                    receiver_login: chatWith.login,
+                    receiver_username: chatWith.username,
+                    text: '',
+                    audio_url: audioUrl
+                }]);
+                toast('✅ Голосовое отправлено!');
+            } else if (voiceContext?.postId) {
+                // Отправка в комментарий
+                const postId = voiceContext.postId;
+                await SB.from('comments').insert([{
+                    post_id: parseInt(postId),
+                    user_login: currentUser.login,
+                    username: currentUser.username,
+                    text: '',
+                    audio_url: audioUrl
+                }]);
+                // Уведомление автору поста
+                const { data: post } = await SB.from('posts').select('user_login').eq('id', postId).single();
+                if (post && post.user_login !== currentUser.login) {
+                    await SB.from('notifications').insert([{
+                        user_login: post.user_login, type: 'comment',
+                        text: `🎙️ ${currentUser.username} оставил(а) голосовой комментарий [post_id:${postId}]`,
+                        is_read: false
+                    }]);
+                }
+                await loadPostStats(postId);
+                toast('✅ Голосовой комментарий отправлен!');
+            }
+            voiceContext = null;
+        }
 
-            toast('Голосовое сообщение отправлено!');
-            await renderChatMessages();
+        function blobToBase64(blob) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
         }
 
         async function renderPeople() {
@@ -1539,6 +1742,28 @@ alter publication supabase_realtime add table notifications;
 
             if (imageUrl) await addReputation(currentUser.login, 10, 'пост с фото');
             await SB.from('users').update({ last_seen: new Date().toISOString() }).eq('login', currentUser.login);
+
+            // Уведомляем всех подписчиков о новом посте
+            const { data: followers } = await SB.from('follows')
+                .select('follower_login')
+                .eq('following_login', currentUser.login);
+
+            if (followers && followers.length > 0) {
+                const preview = (text || '').substring(0, 50);
+                const notifText = imageUrl
+                    ? `📝 ${currentUser.username} опубликовал(а) новый пост${preview ? ': "' + preview + (text.length > 50 ? '..."' : '"') : ''} 🖼️`
+                    : `📝 ${currentUser.username} опубликовал(а) новый пост${preview ? ': "' + preview + (text.length > 50 ? '..."' : '"') : ''}`;
+
+                // Вставляем все уведомления одним запросом
+                const notifs = followers.map(f => ({
+                    user_login: f.follower_login,
+                    type: 'new_post',
+                    text: notifText,
+                    is_read: false
+                }));
+                await SB.from('notifications').insert(notifs);
+            }
+
             await stats();
             goHome();
         }
@@ -1577,6 +1802,15 @@ alter publication supabase_realtime add table notifications;
             if (error) return toast('Ошибка подписки: ' + error.message, true);
 
             toast('Вы подписались!');
+
+            // Уведомление тому, на кого подписались
+            await SB.from('notifications').insert([{
+                user_login: targetLogin,
+                type: 'follow',
+                text: `👤 ${currentUser.username} подписался(ась) на тебя`,
+                is_read: false
+            }]);
+
             await renderProfile(); // обновляем профиль
         }
 
@@ -1943,7 +2177,7 @@ create table if not exists notifications (
                     await SB.from('notifications').insert([{
                         user_login: post.user_login,
                         type: 'like',
-                        text: `❤️ ${currentUser.username} лайкнул(а) твой пост${preview ? ': "' + preview + (post.content.length > 40 ? '..."' : '"') : ''}`,
+                        text: `❤️ ${currentUser.username} лайкнул(а) твой пост${preview ? ': "' + preview + (post.content.length > 40 ? '..."' : '"') : ''} [post_id:${postId}]`,
                         is_read: false
                     }]);
                 }
@@ -1959,12 +2193,23 @@ create table if not exists notifications (
             if (!input) return;
             const text = input.value.trim();
             if (!text) return;
-            await SB.from('comments').insert([{
-                post_id: parseInt(postId), user_login: currentUser.login,
-                username: currentUser.username, text: text
-            }]);
 
-            // Даём +2 репутации + уведомление
+            const replyToId = input.dataset.replyId ? parseInt(input.dataset.replyId) : null;
+            const replyToUsername = input.dataset.replyName || null;
+
+            const insertData = {
+                post_id: parseInt(postId),
+                user_login: currentUser.login,
+                username: currentUser.username,
+                text: text
+            };
+            if (replyToId) {
+                insertData.reply_to_id = replyToId;
+                insertData.reply_to_username = replyToUsername;
+            }
+            await SB.from('comments').insert([insertData]);
+
+            // Репутация + уведомление автору поста
             const { data: post } = await SB.from('posts').select('user_login, content').eq('id', postId).single();
             if (post) {
                 await addReputation(post.user_login, 2, 'комментарий');
@@ -1972,15 +2217,28 @@ create table if not exists notifications (
                     await SB.from('notifications').insert([{
                         user_login: post.user_login,
                         type: 'comment',
-                        text: `💬 ${currentUser.username} прокомментировал(а): "${text.substring(0,50)}${text.length>50?'...':''}"`,
+                        text: `💬 ${currentUser.username} прокомментировал(а): "${text.substring(0,50)}${text.length>50?'...':''}" [post_id:${postId}]`,
                         is_read: false
                     }]);
                 }
             }
 
-            input.value = '';
+            // Уведомление тому, на кого ответили
+            if (replyToId && replyToUsername) {
+                const { data: repliedCom } = await SB.from('comments').select('user_login').eq('id', replyToId).single();
+                if (repliedCom && repliedCom.user_login !== currentUser.login) {
+                    await SB.from('notifications').insert([{
+                        user_login: repliedCom.user_login,
+                        type: 'comment',
+                        text: `↩️ ${currentUser.username} ответил(а) тебе: "${text.substring(0,50)}${text.length>50?'...':''}" [post_id:${postId}]`,
+                        is_read: false
+                    }]);
+                }
+            }
+
+            // Сброс поля + сброс режима ответа
+            clearReplyTarget(postId);
             await loadPostStats(postId);
-            document.getElementById('comments-' + postId)?.classList.add('open');
         }
 
         // === Показать подписчиков / подписки ===
@@ -2083,6 +2341,23 @@ create table if not exists notifications (
         }
 
         function goHome() { page = 'feed'; profileLogin = null; renderAll(); renderPage(); }
+        
+        async function goToPost(postId) {
+            // Закрываем панель уведомлений
+            document.getElementById('notifPanel')?.classList.remove('show');
+            // Переходим в ленту
+            page = 'feed'; profileLogin = null; renderAll();
+            await renderPage();
+            // Скроллим к посту
+            setTimeout(() => {
+                const el = document.getElementById('post-' + postId);
+                if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    el.style.boxShadow = '0 0 0 2px var(--pink)';
+                    setTimeout(() => { el.style.boxShadow = ''; }, 2000);
+                }
+            }, 300);
+        }
         function goMessages() { page = 'messages'; renderAll(); renderPage(); }
 
         function goPeople() { page = 'people'; renderAll(); renderPage(); }
@@ -2588,6 +2863,73 @@ create table if not exists notifications (
                 <div class="modal" style="max-width:460px; max-height:85vh; overflow-y:auto;">
                     <h2 style="margin-bottom:16px; text-align:center;">にじ Niji — Обновления</h2>
                     
+                    <!-- v2.3 -->
+                    <div style="background:var(--surface2); padding:16px; border-radius:12px; margin-bottom:14px; border-left:4px solid var(--blue);">
+                        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                            <strong style="color:var(--blue); font-size:15px;">v2.3</strong>
+                            <span style="font-size:11px; color:#888;">7 июня 2026</span>
+                        </div>
+                        <div style="font-size:13px; line-height:1.6;">
+                            <strong>🎤 Голосовые сообщения — полный фикс</strong><br>
+                            • ГС в чате теперь работают стабильно<br>
+                            • Таймер записи показывает сколько уже пишешь<br>
+                            • Авто-стоп после 2 минут<br>
+                            • Fallback: если Storage недоступен — сохраняет в base64<br><br>
+                            <strong>🎙️ Голосовые комментарии</strong><br>
+                            • Кнопка 🎤 появилась под каждым постом<br>
+                            • Нажми — запись — нажми снова — отправится<br>
+                            • Аудио-плеер прямо в комментариях
+                        </div>
+                    </div>
+
+                    <!-- v2.2 -->
+                    <div style="background:var(--surface2); padding:16px; border-radius:12px; margin-bottom:14px; border-left:4px solid #2ed573;">
+                        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                            <strong style="color:#2ed573; font-size:15px;">v2.2</strong>
+                            <span style="font-size:11px; color:#888;">7 июня 2026</span>
+                        </div>
+                        <div style="font-size:13px; line-height:1.6;">
+                            <strong>🔔 Уведомления о новых постах</strong><br>
+                            • Все подписчики получают уведомление когда ты публикуешь пост<br>
+                            • В уведомлении — превью текста поста<br>
+                            • Если пост с фото — отображается 🖼️<br>
+                            • Уведомление приходит мгновенно через Realtime
+                        </div>
+                    </div>
+
+                    <!-- v2.1 -->
+                    <div style="background:var(--surface2); padding:16px; border-radius:12px; margin-bottom:14px; border-left:4px solid var(--pink);">
+                        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                            <strong style="color:var(--pink); font-size:15px;">v2.1</strong>
+                            <span style="font-size:11px; color:#888;">7 июня 2026</span>
+                        </div>
+                        <div style="font-size:13px; line-height:1.6;">
+                            <strong>❤️ Лайки на комментарии</strong><br>
+                            • Кнопка ❤️ под каждым комментарием<br>
+                            • Автор комментария получает уведомление о лайке<br><br>
+                            <strong>↩ Ответы на комментарии</strong><br>
+                            • Кнопка «↩ Ответить» под каждым комментарием<br>
+                            • Ответ отображается с отступом под родительским<br>
+                            • Показывается → @кому ты отвечаешь<br>
+                            • Уведомление тому, кому ты ответил
+                        </div>
+                    </div>
+
+                    <!-- v2.0 -->
+                    <div style="background:var(--surface2); padding:16px; border-radius:12px; margin-bottom:14px; border-left:4px solid #f9ca24;">
+                        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                            <strong style="color:#f9ca24; font-size:15px;">v2.0</strong>
+                            <span style="font-size:11px; color:#888;">7 июня 2026</span>
+                        </div>
+                        <div style="font-size:13px; line-height:1.6;">
+                            <strong>🔔 Улучшенные уведомления</strong><br>
+                            • Уведомление при подписке на тебя<br>
+                            • Уведомление при получении личного сообщения<br>
+                            • В уведомлениях о лайках и комментах — клик переходит к посту<br>
+                            • Пост подсвечивается розовым после перехода
+                        </div>
+                    </div>
+
                     <!-- v1.9 -->
                     <div style="background:var(--surface2); padding:16px; border-radius:12px; margin-bottom:14px; border-left:4px solid #2ed573;">
                         <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
@@ -2729,10 +3071,19 @@ create table if not exists notifications (
             list.innerHTML = notifs.map(n => {
                 const t = new Date(n.created_at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
                 const icon = NOTIF_ICONS[n.type] || '🔔';
-                return `<div class="notif-item ${n.is_read ? '' : 'unread'}" onclick="markNotifRead('${n.id}', this)">
+                // Извлекаем post_id из текста если есть
+                const postMatch = n.text.match(/\[post_id:(\d+)\]/);
+                const postId = postMatch ? postMatch[1] : null;
+                // Убираем маркер из отображаемого текста
+                const displayText = n.text.replace(/\s*\[post_id:\d+\]/, '');
+                const clickAction = postId
+                    ? `markNotifRead('${n.id}', this); goToPost('${postId}')`
+                    : `markNotifRead('${n.id}', this)`;
+                return `<div class="notif-item ${n.is_read ? '' : 'unread'}" onclick="${clickAction}">
                     <div class="notif-icon">${icon}</div>
                     <div class="notif-body">
-                        <div style="word-break:break-word;">${esc(n.text)}</div>
+                        <div style="word-break:break-word;">${esc(displayText)}</div>
+                        ${postId ? `<div style="font-size:10px;color:var(--blue);margin-top:2px;">Нажми, чтобы перейти к посту →</div>` : ''}
                         <div class="notif-time">${t}</div>
                     </div>
                     ${!n.is_read ? '<div class="notif-dot"></div>' : ''}
@@ -2768,48 +3119,63 @@ create table if not exists notifications (
             // Сразу грузим
             loadNotifications();
 
-            // Polling каждые 4 секунды — надёжнее Realtime
-            if (notifPollInterval) clearInterval(notifPollInterval);
-            notifPollInterval = setInterval(async () => {
-                if (!currentUser) return;
-                const { data: notifs } = await SB.from('notifications')
-                    .select('*')
-                    .eq('user_login', currentUser.login)
-                    .eq('is_read', false)
-                    .order('created_at', { ascending: false })
-                    .limit(20);
-
-                const newOnes = (notifs || []).filter(n => !lastNotifIds.has(String(n.id)));
-                if (newOnes.length > 0) {
-                    // Обновляем бейдж и список
-                    loadNotifications();
-                    // Показываем тост для каждого нового
-                    newOnes.forEach(n => {
-                        const icon = NOTIF_ICONS[n.type] || '🔔';
-                        showNotifToast(icon + ' ' + (n.text || 'Новое уведомление'));
-                    });
-                }
-                // Обновляем известные id
-                (notifs || []).forEach(n => lastNotifIds.add(String(n.id)));
-
-            }, 4000);
-
-            // Realtime как дополнение (если включён в Supabase)
+            // Realtime через Supabase Postgres Changes с фильтром по user_login
             try {
                 if (notifRealtimeChannel) SB.removeChannel(notifRealtimeChannel);
                 notifRealtimeChannel = SB.channel('niji_notif_' + currentUser.login)
                     .on('postgres_changes', {
-                        event: 'INSERT', schema: 'public', table: 'notifications'
+                        event: 'INSERT',
+                        schema: 'public',
+                        table: 'notifications',
+                        filter: `user_login=eq.${currentUser.login}`
                     }, payload => {
                         if (payload.new?.user_login !== currentUser.login) return;
                         loadNotifications();
                         const n = payload.new;
                         const icon = NOTIF_ICONS[n.type] || '🔔';
-                        showNotifToast(icon + ' ' + (n.text || 'Новое уведомление'));
+                        const displayText = (n.text || 'Новое уведомление').replace(/\s*\[post_id:\d+\]/, '');
+                        showNotifToast(icon + ' ' + displayText);
                         lastNotifIds.add(String(n.id));
                     })
-                    .subscribe();
-            } catch(e) { /* Realtime не настроен — не страшно, polling работает */ }
+                    .subscribe(status => {
+                        if (status === 'SUBSCRIBED') {
+                            // Realtime работает — ставим polling как редкий резерв (каждые 15 сек)
+                            if (notifPollInterval) clearInterval(notifPollInterval);
+                            notifPollInterval = setInterval(() => pollNewNotifs(), 15000);
+                        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                            // Realtime не работает — падаем на частый polling
+                            startFallbackPolling();
+                        }
+                    });
+            } catch(e) {
+                startFallbackPolling();
+            }
+        }
+
+        function startFallbackPolling() {
+            if (notifPollInterval) clearInterval(notifPollInterval);
+            notifPollInterval = setInterval(() => pollNewNotifs(), 2000);
+        }
+
+        async function pollNewNotifs() {
+            if (!currentUser) return;
+            const { data: notifs } = await SB.from('notifications')
+                .select('*')
+                .eq('user_login', currentUser.login)
+                .eq('is_read', false)
+                .order('created_at', { ascending: false })
+                .limit(20);
+
+            const newOnes = (notifs || []).filter(n => !lastNotifIds.has(String(n.id)));
+            if (newOnes.length > 0) {
+                loadNotifications();
+                newOnes.forEach(n => {
+                    const icon = NOTIF_ICONS[n.type] || '🔔';
+                    const displayText = (n.text || 'Новое уведомление').replace(/\s*\[post_id:\d+\]/, '');
+                    showNotifToast(icon + ' ' + displayText);
+                });
+            }
+            (notifs || []).forEach(n => lastNotifIds.add(String(n.id)));
         }
 
         async function markNotifRead(id, el) {
