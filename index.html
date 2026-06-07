@@ -211,6 +211,12 @@
                 if (data) {
                     currentUser = data;
 
+                    // Если в БД нет avatar_url — берём из localStorage
+                    if (!currentUser.avatar_url) {
+                        const avatarMap = JSON.parse(localStorage.getItem('niji_avatars') || '{}');
+                        if (avatarMap[saved]) currentUser.avatar_url = avatarMap[saved];
+                    }
+
                     // Обновляем last_seen
                     await SB.from('users').update({ last_seen: new Date().toISOString() }).eq('login', saved);
 
@@ -643,9 +649,20 @@
         async function renderPeople() {
             const mc = document.getElementById('mainContainer');
             
-            const { data: users, error } = await SB.from('users')
+            // Пробуем с avatar_url, если колонки нет — повторяем без неё
+            let users, error;
+            ({ data: users, error } = await SB.from('users')
                 .select('login, username, registered, last_seen, is_verified, level, reputation, avatar_url')
-                .order('registered', { ascending: false });
+                .order('registered', { ascending: false }));
+
+            if (error && error.message && error.message.includes('avatar_url')) {
+                // Колонка ещё не создана — грузим без неё
+                ({ data: users, error } = await SB.from('users')
+                    .select('login, username, registered, last_seen, is_verified, level, reputation')
+                    .order('registered', { ascending: false }));
+                // Добавляем пустой avatar_url чтобы buildAvatarHtml работал
+                if (users) users.forEach(u => u.avatar_url = null);
+            }
 
             if (error) {
                 console.error('Ошибка загрузки пользователей:', error);
@@ -659,6 +676,7 @@
                 html += '<div class="card" style="text-align:center;color:var(--text2);">Пока нет пользователей</div>';
             } else {
                 users.forEach(u => {
+                    if (!u.avatar_url) u.avatar_url = null;
                     const regDate = new Date(u.registered).toLocaleString('ru-RU', { 
                         day: 'numeric', month: 'short', year: 'numeric', 
                         hour: '2-digit', minute: '2-digit' 
@@ -1381,7 +1399,6 @@
             let avatarUrl = null;
 
             if (avatarGalleryTab === 'upload' && uploadedAvatarFile) {
-                // Загружаем файл в Supabase Storage
                 toast('Загружаю фото...');
                 const ext = uploadedAvatarFile.name.split('.').pop();
                 const safeLogin = currentUser.login.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_.-]/g,'');
@@ -1393,20 +1410,27 @@
                 const { data: urlData } = SB.storage.from('post-images').getPublicUrl(fileName);
                 avatarUrl = urlData.publicUrl;
             } else if (selectedAvatarEmoji || selectedAvatarGradient) {
-                // Создаём SVG-аватар с эмодзи или градиентом
                 const emoji = selectedAvatarEmoji || currentUser.username[0].toUpperCase();
                 const bg = selectedAvatarGradient || color(currentUser.login);
-                // Сохраняем как data-URL (SVG)
                 avatarUrl = `data:avatar/svg+xml,${encodeURIComponent(JSON.stringify({ emoji, bg }))}`;
             } else {
                 return toast('Выберите аватар!', true);
             }
 
+            // Пробуем сохранить в БД, если колонка есть
             const { error } = await SB.from('users').update({ avatar_url: avatarUrl }).eq('login', currentUser.login);
-            if (error) return toast('Ошибка сохранения: ' + error.message, true);
+            
+            if (error && error.message && error.message.includes('avatar_url')) {
+                // Колонки нет — сохраняем в localStorage (работает на этом устройстве)
+                const avatarMap = JSON.parse(localStorage.getItem('niji_avatars') || '{}');
+                avatarMap[currentUser.login] = avatarUrl;
+                localStorage.setItem('niji_avatars', JSON.stringify(avatarMap));
+            } else if (error) {
+                return toast('Ошибка: ' + error.message, true);
+            }
 
             currentUser.avatar_url = avatarUrl;
-            toast('✅ Аватар обновлён!');
+            toast('✅ Аватар сохранён!');
             document.getElementById('avatarGalleryModal')?.remove();
             uploadedAvatarFile = null;
             renderAll();
@@ -1415,8 +1439,12 @@
 
         async function resetAvatar() {
             if (!currentUser) return;
-            const { error } = await SB.from('users').update({ avatar_url: null }).eq('login', currentUser.login);
-            if (error) return toast('Ошибка: ' + error.message, true);
+            // Чистим localStorage в любом случае
+            const avatarMap = JSON.parse(localStorage.getItem('niji_avatars') || '{}');
+            delete avatarMap[currentUser.login];
+            localStorage.setItem('niji_avatars', JSON.stringify(avatarMap));
+            // Пробуем обнулить в БД
+            await SB.from('users').update({ avatar_url: null }).eq('login', currentUser.login);
             currentUser.avatar_url = null;
             toast('Аватар сброшен');
             document.getElementById('avatarGalleryModal')?.remove();
@@ -1550,4 +1578,4 @@
         init();
     </script>
 </body>
-    </html>
+</html>
