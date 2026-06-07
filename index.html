@@ -67,10 +67,64 @@ alter table notifications add column if not exists from_login text;
 alter table users add column if not exists bio text;
 
 ===========================================
+
+=== КОМНАТЫ ДЛЯ ПРОСМОТРА АНИМЕ — выполни в SQL Editor ===
+
+create table if not exists anime_rooms (
+  id bigint generated always as identity primary key,
+  title text not null,
+  anime_title text,
+  video_url text,
+  owner_login text not null,
+  is_playing boolean default false,
+  current_time float default 0,
+  updated_at timestamptz default now(),
+  created_at timestamptz default now()
+);
+alter table anime_rooms enable row level security;
+create policy "anyone can select anime_rooms" on anime_rooms for select using (true);
+create policy "anyone can insert anime_rooms" on anime_rooms for insert with check (true);
+create policy "anyone can update anime_rooms" on anime_rooms for update using (true);
+create policy "anyone can delete anime_rooms" on anime_rooms for delete using (true);
+
+create table if not exists anime_room_members (
+  id bigint generated always as identity primary key,
+  room_id bigint not null references anime_rooms(id) on delete cascade,
+  user_login text not null,
+  username text not null,
+  avatar_url text,
+  joined_at timestamptz default now(),
+  last_seen timestamptz default now(),
+  unique(room_id, user_login)
+);
+alter table anime_room_members enable row level security;
+create policy "anyone can select anime_room_members" on anime_room_members for select using (true);
+create policy "anyone can insert anime_room_members" on anime_room_members for insert with check (true);
+create policy "anyone can update anime_room_members" on anime_room_members for update using (true);
+create policy "anyone can delete anime_room_members" on anime_room_members for delete using (true);
+
+create table if not exists anime_room_chat (
+  id bigint generated always as identity primary key,
+  room_id bigint not null references anime_rooms(id) on delete cascade,
+  user_login text not null,
+  username text not null,
+  avatar_url text,
+  text text not null,
+  created_at timestamptz default now()
+);
+alter table anime_room_chat enable row level security;
+create policy "anyone can select anime_room_chat" on anime_room_chat for select using (true);
+create policy "anyone can insert anime_room_chat" on anime_room_chat for insert with check (true);
+create policy "anyone can delete anime_room_chat" on anime_room_chat for delete using (true);
+
+alter publication supabase_realtime add table anime_rooms;
+alter publication supabase_realtime add table anime_room_members;
+alter publication supabase_realtime add table anime_room_chat;
+
+===========================================
 -->
 <html lang="ru">
 <head>
-  <link rel="stylesheet" href="style.css">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>にじ Niji</title>
@@ -361,6 +415,39 @@ alter table users add column if not exists bio text;
             padding: 2px 4px;
             text-align: center;
         }
+
+        /* ===== АДАПТИВНОСТЬ ===== */
+        @media (max-width: 600px) {
+            .header { padding: 8px 12px; }
+            .logo { font-size: 18px; }
+            .container { padding: 0 8px; margin: 10px auto; }
+            .card { padding: 10px; border-radius: 12px; margin-bottom: 8px; }
+            .nav-tabs { gap: 6px; overflow-x: auto; padding-bottom: 4px; flex-wrap: nowrap; white-space: nowrap; scrollbar-width: none; }
+            .nav-tabs::-webkit-scrollbar { display: none; }
+            .nav-tab { font-size: 12px; padding: 4px 2px; flex-shrink: 0; }
+            .notif-panel { width: calc(100vw - 16px); right: -8px; max-height: 70vh; }
+            .btn { padding: 7px 12px; font-size: 12px; }
+            .user-badge > span { display: none; }
+            .post-text { font-size: 12px; }
+            textarea { font-size: 12px; }
+            .dialog-name { font-size: 13px; }
+            .dialog-last { font-size: 11px; }
+            .avatar-gallery-grid { grid-template-columns: repeat(5, 1fr); }
+            .cover-gallery-grid { grid-template-columns: repeat(2, 1fr); }
+            .tabs { border-radius: 10px; }
+            .tab { font-size: 12px; padding: 8px 6px; }
+            .bigstats-bar { font-size: 12px !important; }
+        }
+        @media (min-width: 601px) and (max-width: 1024px) {
+            .container { max-width: 700px; }
+        }
+        @media (min-width: 1025px) {
+            .container { max-width: 750px; }
+            .card { padding: 16px; }
+            .post-text { font-size: 14px; }
+        }
+        /* Плавный скролл nav-tabs на мобильном */
+        .nav-tabs { -webkit-overflow-scrolling: touch; }
     </style>
 </head>
 <body>
@@ -415,6 +502,12 @@ alter table users add column if not exists bio text;
         let mediaRecorder = null;
         let audioChunks = [];
         let voiceContext = null; // 'chat' | { postId }  — откуда вызвана запись
+        let currentRoom = null;
+        let roomChatChannel = null;
+        let roomSyncChannel = null;
+        let roomMembersChannel = null;
+        let roomChatInterval = null;
+        let roomSyncInterval = null;
         async function init() {
             const saved = localStorage.getItem('niji_session');
             if (saved) {
@@ -571,7 +664,8 @@ alter table users add column if not exists bio text;
                 <button class="nav-tab ${page === 'people' ? 'active' : ''}" onclick="goPeople()">👥 Люди</button>
                 <button class="nav-tab ${page === 'messages' ? 'active' : ''}" onclick="goMessages()">💬 Сообщения</button>
                 <button class="nav-tab ${page === 'profile' ? 'active' : ''}" onclick="goProfile('${currentUser.login}')">👤 Профиль</button>
-                <button class="nav-tab ${page === 'settings' ? 'active' : ''}" onclick="goSettings()">⚙️ Настройки</button>`;
+                <button class="nav-tab ${page === 'settings' ? 'active' : ''}" onclick="goSettings()">⚙️ Настройки</button>
+                <button class="nav-tab ${page === 'rooms' ? 'active' : ''}" onclick="goRooms()">🎬 Комнаты</button>`;
 
             // Админ-панель верификации (только для разработчиков)
             if (DEVS.includes((currentUser.login || '').toLowerCase())) {
@@ -587,6 +681,7 @@ alter table users add column if not exists bio text;
             else if (page === 'people') await renderPeople();
             else if (page === 'verification') await renderVerification();
             else if (page === 'settings') await renderSettings();
+            else if (page === 'rooms') await renderRooms();
         }
         async function renderFeed() {
             const mc = document.getElementById('mainContainer');
@@ -781,9 +876,12 @@ alter table users add column if not exists bio text;
                                     ${c.reply_to_username ? `<span style="font-size:11px;color:var(--blue);background:rgba(77,201,246,0.1);padding:1px 6px;border-radius:6px;">↩ @${esc(c.reply_to_username)}</span>` : ''}
                                     <span style="font-size:10px;color:var(--text2);">${t}</span>
                                 </div>
-                                ${c.audio_url ? `<audio controls src="${c.audio_url}" style="max-width:100%;height:32px;margin-top:4px;border-radius:20px;display:block;" preload="metadata"></audio>` : ''}
+                                ${c.audio_url ? `<div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+                                    <audio controls src="${c.audio_url}" style="flex:1;min-width:0;height:32px;border-radius:20px;" preload="metadata"></audio>
+                                    ${(currentUser && (c.user_login === currentUser.login || DEVS.includes(currentUser.login?.toLowerCase()))) ? `<button onclick="deleteComment('${c.id}','${postId}',${!!c.audio_url})" style="background:rgba(255,71,87,0.15);border:1px solid var(--danger);color:var(--danger);border-radius:8px;padding:3px 8px;font-size:11px;cursor:pointer;flex-shrink:0;" title="Удалить">🗑️</button>` : ''}
+                                </div>` : ''}
                                 ${c.text ? `<div style="font-size:12px;line-height:1.5;margin-top:3px;word-break:break-word;">${esc(c.text)}</div>` : ''}
-                                <div style="display:flex;align-items:center;margin-top:4px;flex-wrap:wrap;gap:4px;">${likeBtn}${replyBtn}${showRepliesBtn}</div>
+                                <div style="display:flex;align-items:center;margin-top:4px;flex-wrap:wrap;gap:4px;">${likeBtn}${replyBtn}${showRepliesBtn}${(currentUser && !c.audio_url && (c.user_login === currentUser.login || DEVS.includes(currentUser.login?.toLowerCase()))) ? `<button onclick="deleteComment('${c.id}','${postId}',false)" style="background:none;border:none;color:var(--danger);font-size:11px;cursor:pointer;padding:0;font-family:inherit;margin-left:4px;opacity:0.7;" title="Удалить комментарий">🗑️</button>` : ''}</div>
                             </div>
                         </div>${hasReplies && !isReply ? `<div id="${repliesId}" style="display:none;">${nestedHtml}</div>` : (isReply ? nestedHtml : '')}`;
                     }
@@ -908,12 +1006,17 @@ alter table users add column if not exists bio text;
                     const uObj = userMap[d.login] || { login: d.login, username: d.username, avatar_url: null };
                     html += `
                     <div class="dialog-row" onclick="openChat('${d.login}','${esc(d.username)}')">
-                        ${buildAvatarHtml(uObj, 44, 18)}
+                        <div onclick="event.stopPropagation(); goProfile('${d.login}')" style="cursor:pointer;flex-shrink:0;" title="Профиль">
+                            ${buildAvatarHtml(uObj, 44, 18)}
+                        </div>
                         <div class="dialog-info">
-                            <div class="dialog-name">${esc(d.username)}</div>
+                            <div class="dialog-name" onclick="event.stopPropagation(); goProfile('${d.login}')" style="cursor:pointer;" onmouseover="this.style.color='var(--blue)'" onmouseout="this.style.color=''">${esc(d.username)}</div>
                             <div class="dialog-last">${esc(d.lastText.substring(0, 40))}${d.lastText.length > 40 ? '...' : ''}</div>
                         </div>
-                        <div class="dialog-time">${t}</div>
+                        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+                            <div class="dialog-time">${t}</div>
+                            <button onclick="event.stopPropagation(); goProfile('${d.login}')" style="background:none;border:1px solid var(--border);color:var(--text2);border-radius:8px;padding:2px 7px;font-size:10px;cursor:pointer;font-family:inherit;">👤 Профиль</button>
+                        </div>
                     </div>`;
                 });
             }
@@ -1044,8 +1147,10 @@ alter table users add column if not exists bio text;
             // Первый рендер — строим всю структуру
             let html = `
             <div style="display:flex; align-items:center; gap:10px; padding:14px 16px; background:var(--surface); border-bottom:1px solid var(--border); flex-shrink:0;">
-                ${buildAvatarHtml(partnerObj, 40, 17)}
-                <h3 style="margin:0; flex:1; font-size:15px;">💬 ${esc(chatWith.username)}</h3>
+                <div onclick="closeChat(); goProfile('${chatWith.login}')" style="cursor:pointer; flex-shrink:0; display:flex; align-items:center;" title="Открыть профиль">
+                    ${buildAvatarHtml(partnerObj, 40, 17)}
+                </div>
+                <h3 onclick="closeChat(); goProfile('${chatWith.login}')" style="margin:0; flex:1; font-size:15px; cursor:pointer; transition:color 0.2s;" onmouseover="this.style.color='var(--blue)'" onmouseout="this.style.color=''">💬 ${esc(chatWith.username)}</h3>
                 <button onclick="closeChat()" style="background:none; border:none; color:var(--text2); cursor:pointer; font-size:20px; padding:4px 8px; border-radius:8px;" title="Закрыть">✕</button>
             </div>
             <div id="chatMessages" style="flex:1; overflow-y:auto; padding:14px 16px; display:flex; flex-direction:column; gap:2px; scroll-behavior:smooth;">
@@ -2307,6 +2412,18 @@ create table if not exists notifications (
         function toggleComments(postId) {
             document.getElementById('comments-' + postId)?.classList.toggle('open');
         }
+        async function deleteComment(commentId, postId, hasAudio) {
+            if (!currentUser) return;
+            if (!confirm('Удалить комментарий?')) return;
+            // Удаляем лайки комментария
+            await SB.from('comment_likes').delete().eq('comment_id', commentId);
+            // Удаляем сам комментарий
+            const { error } = await SB.from('comments').delete().eq('id', commentId);
+            if (error) return toast('❌ Ошибка: ' + error.message, true);
+            toast('🗑️ Комментарий удалён');
+            await loadPostStats(postId);
+        }
+
         async function addComment(postId) {
             if (!currentUser) return toast('Войдите!', true);
             const input = document.getElementById('ci-' + postId);
@@ -2487,6 +2604,7 @@ create table if not exists notifications (
             }, 300);
         }
         function goMessages() { page = 'messages'; renderAll(); renderPage(); }
+        function goRooms() { page = 'rooms'; currentRoom = null; renderAll(); renderPage(); }
 
         function goPeople() { page = 'people'; renderAll(); renderPage(); }
 
@@ -3372,12 +3490,13 @@ create table if not exists notifications (
                     avatarHtml = `<div style="width:36px;height:36px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">${icon}</div>`;
                 }
 
+                const avatarClickAction = actor ? `event.stopPropagation(); markNotifRead('${n.id}', this.closest('.notif-item')); goProfile('${n.from_login}')` : '';
                 return `<div class="notif-item ${n.is_read ? '' : 'unread'}" onclick="${clickAction}" style="gap:10px;">
-                    <div style="flex-shrink:0;">${avatarHtml}</div>
+                    <div style="flex-shrink:0;${actor ? 'cursor:pointer;' : ''}" onclick="${avatarClickAction}" title="${actor ? 'Профиль ' + esc(actor.username) : ''}">${avatarHtml}</div>
                     <div class="notif-body">
-                        ${actor ? `<div style="font-weight:600;font-size:12px;color:var(--text);margin-bottom:2px;">${esc(actor.username)} <span style="font-size:10px;background:linear-gradient(90deg,#ff6b9d,#4dc9f6);color:#fff;padding:1px 5px;border-radius:6px;">LVL ${actor.level||1}</span></div>` : ''}
+                        ${actor ? `<div style="font-weight:600;font-size:12px;color:var(--text);margin-bottom:2px;cursor:pointer;" onclick="event.stopPropagation(); markNotifRead('${n.id}', this.closest('.notif-item')); goProfile('${n.from_login}')" onmouseover="this.style.color='var(--blue)'" onmouseout="this.style.color='var(--text)'">${esc(actor.username)} <span style="font-size:10px;background:linear-gradient(90deg,#ff6b9d,#4dc9f6);color:#fff;padding:1px 5px;border-radius:6px;">LVL ${actor.level||1}</span></div>` : ''}
                         <div style="word-break:break-word;font-size:12px;">${esc(displayText)}</div>
-                        ${postId ? `<div style="font-size:10px;color:var(--blue);margin-top:2px;">→ Перейти к посту</div>` : ''}
+                        ${postId ? `<div style="font-size:10px;color:var(--blue);margin-top:2px;">📌 Перейти к посту</div>` : ''}
                         <div class="notif-time">${t}</div>
                     </div>
                     ${!n.is_read ? '<div class="notif-dot"></div>' : ''}
@@ -3550,8 +3669,449 @@ create table if not exists notifications (
             document.addEventListener(evt, updateActivity, { passive: true })
         );
 
+
+        // ============================================================
+        // 🎬 КОМНАТЫ ДЛЯ ПРОСМОТРА АНИМЕ
+        // ============================================================
+
+        async function renderRooms() {
+            const mc = document.getElementById('mainContainer');
+            if (!currentUser) {
+                mc.innerHTML = '<div class="card" style="text-align:center;padding:30px;color:var(--text2);">Войди, чтобы использовать комнаты</div>';
+                return;
+            }
+            if (currentRoom) {
+                await renderRoomInside();
+                return;
+            }
+
+            mc.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text2);font-size:13px;">⏳ Загрузка комнат...</div>';
+
+            const { data: rooms } = await SB.from('anime_rooms')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            // Получаем количество участников для каждой комнаты
+            const roomIds = (rooms || []).map(r => r.id);
+            let membersMap = {};
+            if (roomIds.length > 0) {
+                const cutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+                const { data: members } = await SB.from('anime_room_members')
+                    .select('room_id, user_login')
+                    .in('room_id', roomIds)
+                    .gte('last_seen', cutoff);
+                (members || []).forEach(m => {
+                    membersMap[m.room_id] = (membersMap[m.room_id] || 0) + 1;
+                });
+            }
+
+            let html = `
+            <div class="card" style="margin-bottom:14px;">
+                <div style="font-size:16px;font-weight:700;margin-bottom:12px;">🎬 Комнаты для просмотра аниме</div>
+                <div style="font-size:12px;color:var(--text2);margin-bottom:14px;">Создай комнату, вставь ссылку на видео — и смотрите аниме вместе в реальном времени!</div>
+                <button class="btn btn-pink" onclick="openCreateRoomModal()" style="width:100%;">＋ Создать комнату</button>
+            </div>`;
+
+            if (!rooms || rooms.length === 0) {
+                html += '<div class="card" style="text-align:center;padding:30px;color:var(--text2);">Пока нет комнат. Создай первую! 🎉</div>';
+            } else {
+                html += rooms.map(r => {
+                    const count = membersMap[r.id] || 0;
+                    const isOwner = r.owner_login === currentUser.login || DEVS.includes(currentUser.login?.toLowerCase());
+                    return `<div class="card" style="cursor:pointer;transition:all 0.2s;" onclick="joinRoom(${r.id})" onmouseover="this.style.borderColor='var(--pink)'" onmouseout="this.style.borderColor='var(--border)'">
+                        <div style="display:flex;align-items:flex-start;gap:12px;">
+                            <div style="font-size:36px;flex-shrink:0;">🎌</div>
+                            <div style="flex:1;min-width:0;">
+                                <div style="font-weight:700;font-size:15px;margin-bottom:4px;">${esc(r.title)}</div>
+                                ${r.anime_title ? `<div style="font-size:12px;color:var(--blue);margin-bottom:4px;">📺 ${esc(r.anime_title)}</div>` : ''}
+                                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                                    <span style="font-size:11px;color:var(--text2);">👤 ${esc(r.owner_login)}</span>
+                                    <span style="font-size:11px;color:${count > 0 ? 'var(--green)' : 'var(--text2)'};">🟢 ${count} онлайн</span>
+                                    <span style="font-size:11px;padding:2px 8px;border-radius:8px;background:${r.is_playing ? 'rgba(46,213,115,0.15)' : 'rgba(136,136,170,0.15)'};color:${r.is_playing ? 'var(--green)' : 'var(--text2)'};">${r.is_playing ? '▶ Идёт просмотр' : '⏸ Пауза'}</span>
+                                </div>
+                            </div>
+                            ${isOwner ? `<button onclick="event.stopPropagation();deleteRoom(${r.id})" style="background:rgba(255,71,87,0.1);border:1px solid var(--danger);color:var(--danger);border-radius:8px;padding:4px 10px;font-size:11px;cursor:pointer;flex-shrink:0;">🗑️</button>` : ''}
+                        </div>
+                    </div>`;
+                }).join('');
+            }
+
+            mc.innerHTML = html;
+        }
+
+        function openCreateRoomModal() {
+            const existing = document.getElementById('createRoomModal');
+            if (existing) existing.remove();
+            const modal = document.createElement('div');
+            modal.id = 'createRoomModal';
+            modal.className = 'modal-overlay';
+            modal.style.display = 'flex';
+            modal.innerHTML = `
+            <div class="modal" style="width:420px;">
+                <h2 style="margin-bottom:16px;">🎬 Создать комнату</h2>
+                <input id="roomTitle" placeholder="Название комнаты (например: Смотрим Наруто)" style="margin-bottom:8px;">
+                <input id="roomAnime" placeholder="Аниме (например: Наруто, сезон 1)" style="margin-bottom:8px;">
+                <input id="roomVideoUrl" placeholder="Ссылка на видео (MP4, YouTube, Kodik...)" style="margin-bottom:4px;">
+                <div style="font-size:11px;color:var(--text2);margin-bottom:14px;">Поддерживаются прямые MP4-ссылки. YouTube и другие — через iframe (вставь embed-ссылку)</div>
+                <button class="btn-full" onclick="createRoom()">🚀 Создать</button>
+                <button class="btn-link" onclick="document.getElementById('createRoomModal').remove()">Отмена</button>
+            </div>`;
+            modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+            document.body.appendChild(modal);
+        }
+
+        async function createRoom() {
+            const title = document.getElementById('roomTitle')?.value.trim();
+            const anime = document.getElementById('roomAnime')?.value.trim();
+            const videoUrl = document.getElementById('roomVideoUrl')?.value.trim();
+            if (!title) return toast('Введи название комнаты!', true);
+
+            const { data, error } = await SB.from('anime_rooms').insert([{
+                title, anime_title: anime || null, video_url: videoUrl || null,
+                owner_login: currentUser.login, is_playing: false, current_time: 0
+            }]).select().single();
+
+            if (error) return toast('Ошибка: ' + error.message, true);
+            document.getElementById('createRoomModal')?.remove();
+            toast('✅ Комната создана!');
+            await joinRoom(data.id);
+        }
+
+        async function deleteRoom(roomId) {
+            if (!confirm('Удалить комнату?')) return;
+            await SB.from('anime_room_members').delete().eq('room_id', roomId);
+            await SB.from('anime_room_chat').delete().eq('room_id', roomId);
+            await SB.from('anime_rooms').delete().eq('id', roomId);
+            toast('🗑️ Комната удалена');
+            await renderRooms();
+        }
+
+        async function joinRoom(roomId) {
+            if (!currentUser) return;
+            currentRoom = roomId;
+
+            // Регистрируемся как участник
+            await SB.from('anime_room_members').upsert([{
+                room_id: roomId,
+                user_login: currentUser.login,
+                username: currentUser.username,
+                avatar_url: currentUser.avatar_url || null,
+                joined_at: new Date().toISOString(),
+                last_seen: new Date().toISOString()
+            }], { onConflict: 'room_id,user_login' });
+
+            await renderRoomInside();
+            startRoomRealtime(roomId);
+
+            // Обновляем last_seen каждые 30 секунд пока в комнате
+            if (roomSyncInterval) clearInterval(roomSyncInterval);
+            roomSyncInterval = setInterval(async () => {
+                if (!currentRoom) return;
+                await SB.from('anime_room_members').update({ last_seen: new Date().toISOString() })
+                    .eq('room_id', currentRoom).eq('user_login', currentUser.login);
+                await refreshRoomMembers();
+            }, 30000);
+        }
+
+        async function leaveRoom() {
+            if (!currentRoom) return;
+            await SB.from('anime_room_members').delete()
+                .eq('room_id', currentRoom).eq('user_login', currentUser.login);
+            if (roomChatChannel) SB.removeChannel(roomChatChannel);
+            if (roomSyncChannel) SB.removeChannel(roomSyncChannel);
+            if (roomMembersChannel) SB.removeChannel(roomMembersChannel);
+            if (roomSyncInterval) clearInterval(roomSyncInterval);
+            if (roomChatInterval) clearInterval(roomChatInterval);
+            roomChatChannel = roomSyncChannel = roomMembersChannel = null;
+            currentRoom = null;
+            await renderRooms();
+        }
+
+        async function renderRoomInside() {
+            if (!currentRoom) return;
+            const mc = document.getElementById('mainContainer');
+
+            const { data: room } = await SB.from('anime_rooms').select('*').eq('id', currentRoom).single();
+            if (!room) { currentRoom = null; await renderRooms(); return; }
+
+            const isOwner = room.owner_login === currentUser.login || DEVS.includes(currentUser.login?.toLowerCase());
+
+            // Получаем онлайн-участников
+            const cutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+            const { data: members } = await SB.from('anime_room_members')
+                .select('*').eq('room_id', currentRoom).gte('last_seen', cutoff);
+
+            // Последние 50 сообщений чата
+            const { data: chats } = await SB.from('anime_room_chat')
+                .select('*').eq('room_id', currentRoom)
+                .order('created_at', { ascending: false }).limit(50);
+            const chatMsgs = (chats || []).reverse();
+
+            const membersHtml = (members || []).map(m => {
+                const u = { login: m.user_login, username: m.username, avatar_url: m.avatar_url };
+                return `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;" title="${esc(m.username)}">
+                    ${buildAvatarHtml(u, 24, 10)}
+                    <span style="font-size:12px;">${esc(m.username)}</span>
+                </div>`;
+            }).join('');
+
+            const chatHtml = chatMsgs.map(m => {
+                const isMine = m.user_login === currentUser.login;
+                const u = { login: m.user_login, username: m.username, avatar_url: m.avatar_url };
+                const t = new Date(m.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+                return `<div style="display:flex;gap:6px;align-items:flex-start;margin-bottom:6px;${isMine ? 'flex-direction:row-reverse;' : ''}">
+                    ${buildAvatarHtml(u, 24, 10)}
+                    <div style="max-width:75%;">
+                        ${!isMine ? `<div style="font-size:10px;color:var(--text2);margin-bottom:2px;">${esc(m.username)}</div>` : ''}
+                        <div style="background:${isMine ? 'var(--pink)' : 'var(--surface2)'};color:${isMine ? '#fff' : 'var(--text)'};padding:6px 10px;border-radius:${isMine ? '12px 12px 4px 12px' : '12px 12px 12px 4px'};font-size:12px;line-height:1.4;word-break:break-word;">${esc(m.text)}</div>
+                        <div style="font-size:10px;color:var(--text2);margin-top:2px;text-align:${isMine ? 'right' : 'left'};">${t}</div>
+                    </div>
+                </div>`;
+            }).join('');
+
+            // Определяем тип видео
+            let videoHtml = '';
+            if (room.video_url) {
+                const url = room.video_url;
+                const isMp4 = url.match(/\.mp4|video\/|kodik|sibnet/i) || url.includes('.mp4');
+                if (url.includes('youtube.com/embed') || url.includes('youtu.be') || url.includes('iframe')) {
+                    // Embed iframe (YouTube embed или другой)
+                    const embedUrl = url.replace('watch?v=', 'embed/').replace('youtu.be/', 'youtube.com/embed/');
+                    videoHtml = `<iframe id="roomVideo" src="${esc(embedUrl)}" style="width:100%;aspect-ratio:16/9;border:none;border-radius:10px;" allowfullscreen allow="autoplay; fullscreen"></iframe>`;
+                } else {
+                    // Прямой MP4 или другой
+                    videoHtml = `<video id="roomVideo" src="${esc(url)}" style="width:100%;aspect-ratio:16/9;border-radius:10px;background:#000;display:block;" controls preload="metadata"
+                        ontimeupdate="if(${isOwner})syncVideoState(this)"
+                        onplay="if(${isOwner})syncVideoPlaying(true,this.currentTime)"
+                        onpause="if(${isOwner})syncVideoPlaying(false,this.currentTime)">
+                        Видео не поддерживается
+                    </video>`;
+                }
+            } else {
+                videoHtml = `<div style="width:100%;aspect-ratio:16/9;background:linear-gradient(135deg,#0a0a1a,#1a1026);border-radius:10px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;color:var(--text2);">
+                    <div style="font-size:48px;">🎌</div>
+                    <div style="font-size:13px;">Нет видео</div>
+                    ${isOwner ? `<button onclick="openSetVideoModal()" class="btn btn-outline btn-sm">📎 Добавить видео</button>` : '<div style="font-size:12px;">Ждём пока владелец добавит видео...</div>'}
+                </div>`;
+            }
+
+            mc.innerHTML = `
+            <!-- Шапка комнаты -->
+            <div class="card" style="margin-bottom:10px;padding:10px 14px;">
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                    <button onclick="leaveRoom()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2);border-radius:10px;padding:5px 12px;font-size:12px;cursor:pointer;font-family:inherit;">← Выйти</button>
+                    <div style="flex:1;min-width:0;">
+                        <div style="font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(room.title)}</div>
+                        ${room.anime_title ? `<div style="font-size:11px;color:var(--blue);">📺 ${esc(room.anime_title)}</div>` : ''}
+                    </div>
+                    ${isOwner ? `<button onclick="openSetVideoModal()" class="btn btn-outline btn-sm">📎 Видео</button>` : ''}
+                    <span style="font-size:11px;color:var(--green);">🟢 ${(members || []).length} онлайн</span>
+                </div>
+            </div>
+
+            <!-- Основной контент: видео + сайдбар -->
+            <div style="display:grid;grid-template-columns:1fr 280px;gap:10px;align-items:start;" id="roomGrid">
+
+                <!-- Левая часть: видео + управление -->
+                <div>
+                    <div class="card" style="padding:10px;">
+                        ${videoHtml}
+                        ${isOwner && room.video_url && !room.video_url.includes('embed') && !room.video_url.includes('youtube') ? `
+                        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+                            <button onclick="ownerPlay()" style="flex:1;background:var(--green);color:#000;border:none;border-radius:10px;padding:8px;font-size:13px;font-weight:700;cursor:pointer;">▶ Play для всех</button>
+                            <button onclick="ownerPause()" style="flex:1;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:8px;font-size:13px;cursor:pointer;">⏸ Пауза для всех</button>
+                        </div>` : ''}
+                    </div>
+                </div>
+
+                <!-- Правая часть: участники + чат -->
+                <div style="display:flex;flex-direction:column;gap:10px;">
+                    <!-- Участники -->
+                    <div class="card" style="padding:10px;">
+                        <div style="font-weight:600;font-size:12px;margin-bottom:8px;color:var(--text2);">👥 Участники (${(members || []).length})</div>
+                        <div id="roomMembers">${membersHtml || '<span style="color:var(--text2);font-size:12px;">Никого нет</span>'}</div>
+                    </div>
+
+                    <!-- Чат комнаты -->
+                    <div class="card" style="padding:10px;display:flex;flex-direction:column;height:340px;">
+                        <div style="font-weight:600;font-size:12px;margin-bottom:8px;color:var(--text2);">💬 Чат комнаты</div>
+                        <div id="roomChat" style="flex:1;overflow-y:auto;margin-bottom:8px;padding-right:2px;">
+                            ${chatHtml || '<div style="color:var(--text2);font-size:12px;text-align:center;padding:20px 0;">Сообщений пока нет</div>'}
+                        </div>
+                        <div style="display:flex;gap:6px;">
+                            <input id="roomChatInput" placeholder="Сообщение..." 
+                                style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:7px 12px;color:var(--text);font-size:12px;font-family:inherit;"
+                                onkeydown="if(event.key==='Enter')sendRoomChat()">
+                            <button onclick="sendRoomChat()" style="background:var(--pink);border:none;color:#fff;border-radius:12px;padding:7px 12px;cursor:pointer;font-size:13px;">→</button>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+
+            // Скроллим чат вниз
+            setTimeout(() => {
+                const chatEl = document.getElementById('roomChat');
+                if (chatEl) chatEl.scrollTop = chatEl.scrollHeight;
+            }, 100);
+
+            // Адаптив для мобильного
+            const grid = document.getElementById('roomGrid');
+            if (grid && window.innerWidth < 700) {
+                grid.style.gridTemplateColumns = '1fr';
+            }
+
+            // Синхронизация видео для зрителей
+            if (!isOwner && room.video_url && !room.video_url.includes('embed')) {
+                setTimeout(() => applyVideoState(room), 500);
+            }
+        }
+
+        function openSetVideoModal() {
+            const existing = document.getElementById('setVideoModal');
+            if (existing) existing.remove();
+            const modal = document.createElement('div');
+            modal.id = 'setVideoModal';
+            modal.className = 'modal-overlay';
+            modal.style.display = 'flex';
+            modal.innerHTML = `
+            <div class="modal" style="width:420px;">
+                <h2 style="margin-bottom:12px;">📎 Сменить видео</h2>
+                <input id="newVideoUrl" placeholder="Ссылка на видео (MP4 или YouTube embed)" style="margin-bottom:4px;">
+                <div style="font-size:11px;color:var(--text2);margin-bottom:14px;">MP4: прямая ссылка. YouTube: youtube.com/embed/ID</div>
+                <button class="btn-full" onclick="setRoomVideo()">Сохранить</button>
+                <button class="btn-link" onclick="document.getElementById('setVideoModal').remove()">Отмена</button>
+            </div>`;
+            modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+            document.body.appendChild(modal);
+        }
+
+        async function setRoomVideo() {
+            const url = document.getElementById('newVideoUrl')?.value.trim();
+            if (!url) return toast('Введи ссылку!', true);
+            await SB.from('anime_rooms').update({ video_url: url, current_time: 0, is_playing: false, updated_at: new Date().toISOString() }).eq('id', currentRoom);
+            document.getElementById('setVideoModal')?.remove();
+            toast('✅ Видео обновлено!');
+            await renderRoomInside();
+        }
+
+        // Синхронизация состояния видео (владелец → все)
+        async function syncVideoState(video) {
+            await SB.from('anime_rooms').update({
+                current_time: video.currentTime,
+                is_playing: !video.paused,
+                updated_at: new Date().toISOString()
+            }).eq('id', currentRoom);
+        }
+
+        async function syncVideoPlaying(isPlaying, time) {
+            await SB.from('anime_rooms').update({
+                is_playing: isPlaying,
+                current_time: time,
+                updated_at: new Date().toISOString()
+            }).eq('id', currentRoom);
+        }
+
+        async function ownerPlay() {
+            const video = document.getElementById('roomVideo');
+            if (video) { video.play(); await syncVideoPlaying(true, video.currentTime); }
+        }
+        async function ownerPause() {
+            const video = document.getElementById('roomVideo');
+            if (video) { video.pause(); await syncVideoPlaying(false, video.currentTime); }
+        }
+
+        function applyVideoState(room) {
+            const video = document.getElementById('roomVideo');
+            if (!video || video.tagName !== 'VIDEO') return;
+            const diff = Math.abs(video.currentTime - room.current_time);
+            if (diff > 2) video.currentTime = room.current_time;
+            if (room.is_playing && video.paused) video.play().catch(() => {});
+            if (!room.is_playing && !video.paused) video.pause();
+        }
+
+        async function sendRoomChat() {
+            const input = document.getElementById('roomChatInput');
+            const text = input?.value.trim();
+            if (!text || !currentRoom) return;
+            input.value = '';
+            await SB.from('anime_room_chat').insert([{
+                room_id: currentRoom,
+                user_login: currentUser.login,
+                username: currentUser.username,
+                avatar_url: currentUser.avatar_url || null,
+                text
+            }]);
+        }
+
+        function appendRoomChatMsg(m) {
+            const chatEl = document.getElementById('roomChat');
+            if (!chatEl) return;
+            const isMine = m.user_login === currentUser.login;
+            const u = { login: m.user_login, username: m.username, avatar_url: m.avatar_url };
+            const t = new Date(m.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+            const div = document.createElement('div');
+            div.style.cssText = `display:flex;gap:6px;align-items:flex-start;margin-bottom:6px;${isMine ? 'flex-direction:row-reverse;' : ''}`;
+            div.innerHTML = `${buildAvatarHtml(u, 24, 10)}
+                <div style="max-width:75%;">
+                    ${!isMine ? `<div style="font-size:10px;color:var(--text2);margin-bottom:2px;">${esc(m.username)}</div>` : ''}
+                    <div style="background:${isMine ? 'var(--pink)' : 'var(--surface2)'};color:${isMine ? '#fff' : 'var(--text)'};padding:6px 10px;border-radius:${isMine ? '12px 12px 4px 12px' : '12px 12px 12px 4px'};font-size:12px;line-height:1.4;word-break:break-word;">${esc(m.text)}</div>
+                    <div style="font-size:10px;color:var(--text2);margin-top:2px;text-align:${isMine ? 'right' : 'left'};">${t}</div>
+                </div>`;
+            chatEl.appendChild(div);
+            const atBottom = chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight < 80;
+            if (atBottom) chatEl.scrollTop = chatEl.scrollHeight;
+        }
+
+        async function refreshRoomMembers() {
+            if (!currentRoom) return;
+            const cutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+            const { data: members } = await SB.from('anime_room_members')
+                .select('*').eq('room_id', currentRoom).gte('last_seen', cutoff);
+            const el = document.getElementById('roomMembers');
+            if (!el) return;
+            const { data: room } = await SB.from('anime_rooms').select('owner_login').eq('id', currentRoom).single();
+            el.innerHTML = (members || []).map(m => {
+                const u = { login: m.user_login, username: m.username, avatar_url: m.avatar_url };
+                const isOwner = room && m.user_login === room.owner_login;
+                return `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;">
+                    ${buildAvatarHtml(u, 24, 10)}
+                    <span style="font-size:12px;">${esc(m.username)}</span>
+                    ${isOwner ? '<span style="font-size:10px;color:var(--pink);font-weight:700;">👑</span>' : ''}
+                </div>`;
+            }).join('') || '<span style="color:var(--text2);font-size:12px;">Никого нет</span>';
+        }
+
+        function startRoomRealtime(roomId) {
+            // Убираем старые каналы
+            if (roomChatChannel) SB.removeChannel(roomChatChannel);
+            if (roomSyncChannel) SB.removeChannel(roomSyncChannel);
+            if (roomMembersChannel) SB.removeChannel(roomMembersChannel);
+
+            // Realtime чат
+            roomChatChannel = SB.channel('room_chat_' + roomId)
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'anime_room_chat', filter: `room_id=eq.${roomId}` }, payload => {
+                    if (payload.new) appendRoomChatMsg(payload.new);
+                })
+                .subscribe();
+
+            // Realtime синхронизация видео (только для зрителей)
+            roomSyncChannel = SB.channel('room_sync_' + roomId)
+                .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'anime_rooms', filter: `id=eq.${roomId}` }, payload => {
+                    const { data: room } = payload.new;
+                    if (payload.new) applyVideoState(payload.new);
+                })
+                .subscribe();
+
+            // Realtime участники
+            roomMembersChannel = SB.channel('room_members_' + roomId)
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'anime_room_members', filter: `room_id=eq.${roomId}` }, () => {
+                    refreshRoomMembers();
+                })
+                .subscribe();
+        }
+        // ============================================================
         // Polling уведомлений управляется через subscribeNotifications()
         init();
     </script>
 </body>
-</html>
+          </html>
