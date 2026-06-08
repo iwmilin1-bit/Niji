@@ -2215,12 +2215,19 @@ alter publication supabase_realtime add table anime_room_chat;
             const file = fileInput.files[0];
             if (!file.type.startsWith('image/')) { toast('Только изображения!', true); return; }
             const reader = new FileReader();
-            reader.onload = e => {
+            reader.onload = async e => {
                 const box = document.getElementById(inputId + '-preview');
                 const img = document.getElementById(inputId + '-preview-img');
                 const frameRow = document.getElementById(inputId + '-frame-row');
+                // Показываем превью сразу
                 if (box && img) { img.src = e.target.result; box.style.display = 'block'; }
                 if (frameRow) frameRow.style.display = 'flex';
+                // Сжимаем заранее в фоне — чтобы при публикации не было задержки
+                try {
+                    let compressed = await compressImage(e.target.result, 400, 0.6);
+                    if (compressed.length > 800000) compressed = await compressImage(e.target.result, 300, 0.5);
+                    if (img) img.dataset.compressed = compressed;
+                } catch(e) {}
             };
             reader.readAsDataURL(file);
         }
@@ -2297,10 +2304,23 @@ for select using (bucket_id = 'post-images');
             if (photoSrc) {
                 toast('Публикую...');
                 try {
-                    let compressed = await compressImage(photoSrc, 600, 0.65);
-                    if (compressed.length > 800000) compressed = await compressImage(photoSrc, 400, 0.5);
-                    if (compressed.length > 800000) compressed = await compressImage(photoSrc, 280, 0.4);
-                    imageUrl = compressed;
+                    // Берём заранее сжатое фото если есть
+                    const previewImgEl = document.getElementById(inputId + '-preview-img');
+                    const precompressed = previewImgEl?.dataset?.compressed;
+                    const src = precompressed || photoSrc;
+                    // Конвертируем в файл и грузим в Storage
+                    const res = await fetch(src);
+                    const blob = await res.blob();
+                    const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
+                    const uploaded = await uploadPostImage(file);
+                    if (uploaded && uploaded !== 'NO_STORAGE') {
+                        imageUrl = uploaded;
+                    } else {
+                        // Storage не сработал — base64 fallback
+                        let compressed = precompressed || await compressImage(photoSrc, 400, 0.6);
+                        if (compressed.length > 800000) compressed = await compressImage(photoSrc, 300, 0.5);
+                        imageUrl = compressed;
+                    }
                 } catch(e) {
                     toast('❌ Ошибка фото: ' + e.message, true);
                     return;
