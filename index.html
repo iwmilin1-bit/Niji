@@ -136,7 +136,6 @@ alter publication supabase_realtime add table anime_room_chat;
 -->
 <html lang="ru">
 <head>
-    <link rel="stylesheet" href="style.css">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>にじ Niji</title>
@@ -982,6 +981,11 @@ alter publication supabase_realtime add table anime_room_chat;
                             <button class="tag" onclick="addTag('МагическаяБитва')">👁️ Магия</button>
                             <button class="tag" onclick="addTag('ВанПис')">🏴‍☠️ Ван-Пис</button>
                             
+                            <!-- Кнопка загрузки фото с устройства -->
+                            <label class="tag" style="background:var(--surface2); border:1px solid var(--pink); color:var(--pink); cursor:pointer;">
+                                📷 Фото
+                                <input type="file" id="postInput-file" accept="image/*" style="display:none;" onchange="handlePostPhotoFile('postInput')">
+                            </label>
                             <!-- Кнопка открыть галерею -->
                             <button class="tag" style="background:var(--surface2); border:1px solid var(--blue); color:var(--blue);" onclick="openPhotoGallery('postInput')">
                                 🖼️ Галерея
@@ -2153,6 +2157,10 @@ alter publication supabase_realtime add table anime_room_chat;
                             <button class="tag" onclick="addTag('МагическаяБитва')">👁️ Магия</button>
                             <button class="tag" onclick="addTag('ВанПис')">🏴‍☠️ Ван-Пис</button>
                             
+                            <label class="tag" style="cursor:pointer; background:var(--surface2); border:1px solid var(--pink); color:var(--pink);">
+                                📷 Фото
+                                <input type="file" id="profilePostInput-file" accept="image/*" style="display:none;" onchange="handlePostPhotoFile('profilePostInput')">
+                            </label>
                             <button class="tag" style="cursor:pointer; background:var(--surface2); border:1px solid var(--blue); color:var(--blue);" onclick="openPhotoGallery('profilePostInput')">
                                 🖼️ Галерея
                             </button>
@@ -2204,23 +2212,46 @@ alter publication supabase_realtime add table anime_room_chat;
             }
         }
         // === Загрузка картинки в Supabase Storage (bucket "post-images") ===
+        // Обработка выбора файла через <input type="file">
+        function handlePostPhotoFile(inputId) {
+            const fileInput = document.getElementById(inputId + '-file');
+            if (!fileInput || !fileInput.files.length) return;
+            const file = fileInput.files[0];
+            if (!file.type.startsWith('image/')) { toast('Только изображения!', true); return; }
+            const reader = new FileReader();
+            reader.onload = e => {
+                const box = document.getElementById(inputId + '-preview');
+                const img = document.getElementById(inputId + '-preview-img');
+                const frameRow = document.getElementById(inputId + '-frame-row');
+                if (box && img) { img.src = e.target.result; box.style.display = 'block'; }
+                if (frameRow) frameRow.style.display = 'flex';
+            };
+            reader.readAsDataURL(file);
+        }
+
         async function uploadPostImage(file) {
             if (!file) return null;
-            const fileExt = file.name.split('.').pop();
-            
+
             // Делаем безопасное имя папки (убираем пробелы и спецсимволы)
             const safeLogin = currentUser.login
                 .replace(/\s+/g, '_')
                 .replace(/[^a-zA-Z0-9_.-]/g, '');
-            
-            const fileName = `${safeLogin}/${Date.now()}.${fileExt}`;
-            
+
+            const fileName = `${safeLogin}/${Date.now()}.jpg`;
+
+            let uploadError = null;
+
+            // Первая попытка
             const { data, error } = await SB.storage.from('post-images').upload(fileName, file, {
                 cacheControl: '3600',
-                upsert: false
+                upsert: true,
+                contentType: 'image/jpeg'
             });
-            if (error) {
-                toast('Ошибка загрузки фото: ' + error.message, true);
+            uploadError = error;
+
+            if (uploadError) {
+                toast('❌ Ошибка загрузки фото: ' + uploadError.message, true);
+                console.error('Storage upload error:', uploadError);
                 return null;
             }
             const { data: urlData } = SB.storage.from('post-images').getPublicUrl(fileName);
@@ -2244,8 +2275,8 @@ alter publication supabase_realtime add table anime_room_chat;
             if (photoSrc) {
                 toast('Загружаю фото...');
                 try {
-                    // Сжимаем фото через canvas до макс 900px и 80% качества
-                    const compressed = await compressImage(photoSrc, 900, 0.8);
+                    // Сжимаем фото через canvas до макс 1200px и 85% качества
+                    const compressed = await compressImage(photoSrc, 1200, 0.85);
                     const res = await fetch(compressed);
                     const blob = await res.blob();
                     const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
@@ -2253,13 +2284,13 @@ alter publication supabase_realtime add table anime_room_chat;
                     if (uploaded) {
                         imageUrl = uploaded;
                     } else {
-                        // Supabase Storage не работает — сохраняем сжатый base64
-                        imageUrl = compressed;
+                        // uploadPostImage уже показал ошибку — останавливаем публикацию
+                        return;
                     }
                 } catch(e) {
                     console.error('Ошибка фото:', e);
-                    // Публикуем без фото
-                    toast('⚠️ Фото не прикрепилось, публикую без него');
+                    toast('❌ Ошибка при обработке фото: ' + e.message, true);
+                    return;
                 }
             }
 
@@ -2735,6 +2766,9 @@ create table if not exists notifications (
             const previewImg = document.getElementById(inputId + '-preview-img');
             if (previewBox) previewBox.style.display = 'none';
             if (previewImg) previewImg.src = '';
+            // Сбрасываем файловый инпут
+            const fileInput = document.getElementById(inputId + '-file');
+            if (fileInput) fileInput.value = '';
             // Скрываем выбор рамки и сбрасываем
             const frameRow = document.getElementById(inputId + '-frame-row');
             if (frameRow) frameRow.style.display = 'none';
