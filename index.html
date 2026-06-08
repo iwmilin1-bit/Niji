@@ -136,6 +136,7 @@ alter publication supabase_realtime add table anime_room_chat;
 -->
 <html lang="ru">
 <head>
+    <link rel="stylesheet" href="style.css">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>にじ Niji</title>
@@ -986,10 +987,6 @@ alter publication supabase_realtime add table anime_room_chat;
                                 📷 Фото
                                 <input type="file" id="postInput-file" accept="image/*" style="display:none;" onchange="handlePostPhotoFile('postInput')">
                             </label>
-                            <!-- Кнопка открыть галерею -->
-                            <button class="tag" style="background:var(--surface2); border:1px solid var(--blue); color:var(--blue);" onclick="openPhotoGallery('postInput')">
-                                🖼️ Галерея
-                            </button>
                         </div>
                         <button class="btn btn-pink btn-sm" onclick="createPost('postInput')">Опубликовать</button>
                     </div>
@@ -2260,32 +2257,8 @@ for select using (bucket_id = 'post-images');
 
         async function uploadPostImage(file) {
             if (!file) return null;
-
-            // Сначала пробуем Supabase Storage
-            try {
-                const safeLogin = currentUser.login
-                    .replace(/\s+/g, '_')
-                    .replace(/[^a-zA-Z0-9_.-]/g, '');
-                const fileName = `${safeLogin}/${Date.now()}.jpg`;
-                const { data, error } = await SB.storage.from('post-images').upload(fileName, file, {
-                    cacheControl: '3600', upsert: true, contentType: 'image/jpeg'
-                });
-                if (!error) {
-                    const { data: urlData } = SB.storage.from('post-images').getPublicUrl(fileName);
-                    return urlData.publicUrl;
-                }
-                console.warn('Supabase Storage:', error.message);
-            } catch(e) {
-                console.warn('Supabase Storage exception:', e.message);
-            }
-
-            // Fallback: конвертируем файл в base64 и сохраняем так
-            // (видно только автору пока не настроен Storage)
-            return new Promise((resolve) => {
-                const reader = new FileReader();
-                reader.onload = e => resolve('NO_STORAGE');
-                reader.readAsDataURL(file);
-            });
+            // Сразу возвращаем NO_STORAGE — base64 обрабатывается в createPost
+            return 'NO_STORAGE';
         }
 
         async function createPost(inputId) {
@@ -2333,7 +2306,11 @@ for select using (bucket_id = 'post-images');
                     } else if (uploaded === 'NO_STORAGE') {
                         // Storage не настроен — сохраняем сжатый base64
                         if (photoSrc.startsWith('data:')) {
-                            imageUrl = await compressImage(photoSrc, 700, 0.72);
+                            // Агрессивное сжатие чтобы влезло в лимит Supabase
+                            let compressed = await compressImage(photoSrc, 600, 0.65);
+                            if (compressed.length > 800000) compressed = await compressImage(photoSrc, 400, 0.5);
+                            if (compressed.length > 800000) compressed = await compressImage(photoSrc, 300, 0.4);
+                            imageUrl = compressed;
                         } else {
                             imageUrl = photoSrc;
                         }
@@ -2369,19 +2346,34 @@ for select using (bucket_id = 'post-images');
             }]);
 
             if (error) {
-                // Если ошибка из-за большого фото — пробуем без него
-                if (imageUrl && (error.message.includes('too large') || error.message.includes('payload') || error.code === '54000')) {
-                    const { error: e2 } = await SB.from('posts').insert([{
+                // Если ошибка из-за большого фото — пробуем с ещё сильнее сжатым
+                if (imageUrl && imageUrl.startsWith('data:') && (error.message.includes('too large') || error.message.includes('payload') || error.code === '54000' || error.message.includes('request'))) {
+                    const tinyUrl = await compressImage(imageUrl, 250, 0.35);
+                    const { error: e3 } = await SB.from('posts').insert([{
                         user_login: currentUser.login,
                         username: currentUser.username,
                         content: text || '',
                         tag: tagMatch ? tagMatch[1] : '',
-                        image_url: null,
+                        image_url: tinyUrl,
                         level: currentUser.level || 1,
-                        avatar_url: currentUser.avatar_url || null
+                        avatar_url: currentUser.avatar_url || null,
+                        photo_frame: selectedPhotoFrame || null
                     }]);
-                    if (e2) return toast('❌ ' + e2.message, true);
-                    toast('⚠️ Пост опубликован, но фото не прикрепилось (слишком большое)');
+                    if (!e3) { toast('✅ Опубликовано с фото!'); }
+                    else {
+                        // Совсем не влезло — публикуем без фото
+                        const { error: e2 } = await SB.from('posts').insert([{
+                            user_login: currentUser.login,
+                            username: currentUser.username,
+                            content: text || '',
+                            tag: tagMatch ? tagMatch[1] : '',
+                            image_url: null,
+                            level: currentUser.level || 1,
+                            avatar_url: currentUser.avatar_url || null
+                        }]);
+                        if (e2) return toast('❌ ' + e2.message, true);
+                        toast('⚠️ Пост опубликован, но фото не прикрепилось (слишком большое)');
+                    }
                 } else {
                     return toast('❌ ' + error.message, true);
                 }
