@@ -817,7 +817,7 @@ alter publication supabase_realtime add table anime_room_chat;
             await renderPage();
             await stats();
 
-            if (currentUser) subscribeNotifications();
+            if (currentUser) { subscribeNotifications(); subscribePosts(); }
 
             // Обновляем last_seen каждые 60 секунд пока вкладка открыта
             if (currentUser) {
@@ -2421,8 +2421,8 @@ for select using (bucket_id = 'post-images');
                 await SB.from('notifications').insert(notifs);
             }
 
-            await stats();
-            goHome();
+            await goHome();
+            stats(); // обновляем счётчики фоном
         }
 
         // Сжатие изображения через canvas
@@ -3060,7 +3060,7 @@ create table if not exists notifications (
             else await renderPeople();
         }
 
-        function goHome() { page = 'feed'; profileLogin = null; renderAll(); renderPage(); }
+        async function goHome() { page = 'feed'; profileLogin = null; renderAll(); await renderPage(); }
         
         async function goToPost(postId) {
             // Закрываем панель уведомлений
@@ -4701,6 +4701,42 @@ create table if not exists notifications (
             el.style.transform = 'translateX(0)';
             clearTimeout(el._t);
             el._t = setTimeout(() => { el.style.opacity = '0'; el.style.transform = 'translateX(20px)'; }, 4000);
+        }
+
+        let postsRealtimeChannel = null;
+        function subscribePosts() {
+            if (!currentUser) return;
+            try {
+                if (postsRealtimeChannel) SB.removeChannel(postsRealtimeChannel);
+                postsRealtimeChannel = SB.channel('niji_posts')
+                    .on('postgres_changes', {
+                        event: 'INSERT',
+                        schema: 'public',
+                        table: 'posts'
+                    }, payload => {
+                        // Если мы на ленте — добавляем пост сразу без перезагрузки
+                        if (page === 'feed') {
+                            prependNewPost(payload.new);
+                        }
+                    })
+                    .subscribe();
+            } catch(e) {
+                console.warn('Posts realtime error:', e);
+            }
+        }
+
+        async function prependNewPost(post) {
+            if (!post) return;
+            // Не дублируем свой только что опубликованный пост
+            if (document.getElementById('post-' + post.id)) return;
+            const mc = document.getElementById('mainContainer');
+            if (!mc) return;
+            const postHtml = buildPostCard(post);
+            // Вставляем после формы поста (первая .card)
+            const firstCard = mc.querySelector('.card');
+            if (firstCard) {
+                firstCard.insertAdjacentHTML('afterend', postHtml);
+            }
         }
 
         let notifRealtimeChannel = null;
