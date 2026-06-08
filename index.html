@@ -33,6 +33,11 @@ create policy "anyone can delete messages" on messages for delete using (true);
 -- 3. Колонка avatar_url в users (если нет)
 alter table users add column if not exists avatar_url text;
 
+-- 3а. Колонки avatar_url, level и photo_frame в posts
+alter table posts add column if not exists avatar_url text;
+alter table posts add column if not exists level int default 1;
+alter table posts add column if not exists photo_frame text;
+
 -- 4. БАН: колонка is_banned в users
 alter table users add column if not exists is_banned boolean default false;
 alter table users add column if not exists ban_reason text;
@@ -65,6 +70,12 @@ alter table notifications add column if not exists from_login text;
 
 -- 10. Биография пользователя
 alter table users add column if not exists bio text;
+
+-- 11. Рамка аватара
+alter table users add column if not exists avatar_frame text;
+
+-- 12. DEV медаль (выдаётся только девами)
+alter table users add column if not exists dev_medal text;
 
 ===========================================
 
@@ -284,6 +295,60 @@ alter publication supabase_realtime add table anime_room_chat;
         .cl-like-btn { transition: color 0.2s ease; }
         .cl-like-btn.liked { color: var(--pink) !important; }
         .cl-like-btn:active { transform: scale(0.92); }
+        /* === Рамки аватара === */
+        .avatar-frame-wrap { position: relative; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .avatar-frame-wrap .av-frame {
+            position: absolute; inset: -4px; border-radius: 50%; pointer-events: none; z-index: 1;
+        }
+        .avatar-frame-wrap img,
+        .avatar-frame-wrap .avatar,
+        .avatar-frame-wrap > *:not(.av-frame) {
+            position: relative; z-index: 3;
+        }
+        /* Огонь — Танджиро */
+        @keyframes frameFireSpin { 0%{filter:hue-rotate(0deg) brightness(1.1)} 50%{filter:hue-rotate(20deg) brightness(1.3)} 100%{filter:hue-rotate(0deg) brightness(1.1)} }
+        .frame-tanjiro { background: conic-gradient(#ff4500,#ff6b00,#ffcc00,#ff4500); animation: frameFireSpin 2s infinite, frameSpin 6s linear infinite; }
+        /* Гуль — Канеки */
+        @keyframes frameGhoulPulse { 0%,100%{box-shadow:0 0 0 2px #8b0000,0 0 12px #8b0000} 50%{box-shadow:0 0 0 3px #cc0000,0 0 22px #ff0000} }
+        .frame-kaneki { background: conic-gradient(#1a0000,#8b0000,#cc0000,#ff4444,#8b0000,#1a0000); animation: frameGhoulPulse 2s infinite, frameSpin 8s linear infinite; }
+        /* Бензопила — Дэнджи */
+        @keyframes frameChainsaw { 0%,100%{filter:brightness(1)} 50%{filter:brightness(1.4) saturate(1.5)} }
+        .frame-denji { background: conic-gradient(#ff6b00,#ffaa00,#fff700,#ff6b00); animation: frameChainsaw 1.2s infinite, frameSpin 4s linear infinite; }
+        /* Годзё — синий бесконечность */
+        @keyframes frameGojo { 0%{box-shadow:0 0 0 2px #4dc9f6,0 0 15px #4dc9f6,inset 0 0 8px rgba(77,201,246,0.3)} 50%{box-shadow:0 0 0 3px #a29bfe,0 0 25px #6c5ce7,inset 0 0 12px rgba(162,155,254,0.4)} 100%{box-shadow:0 0 0 2px #4dc9f6,0 0 15px #4dc9f6,inset 0 0 8px rgba(77,201,246,0.3)} }
+        .frame-gojo { background: conic-gradient(#4dc9f6,#a29bfe,#6c5ce7,#4dc9f6); animation: frameGojo 2s infinite, frameSpin 5s linear infinite; }
+        /* Дракон */
+        @keyframes frameDragon { 0%,100%{filter:hue-rotate(0deg)} 50%{filter:hue-rotate(30deg)} }
+        .frame-dragon { background: conic-gradient(#2ed573,#00b894,#00cec9,#6c5ce7,#2ed573); animation: frameDragon 3s infinite, frameSpin 7s linear infinite; }
+        /* Меч — Зоро */
+        @keyframes frameSwordGlow { 0%,100%{box-shadow:0 0 6px #2ed573} 50%{box-shadow:0 0 18px #2ed573,0 0 30px rgba(46,213,115,0.4)} }
+        .frame-zoro { background: conic-gradient(#1a4a1a,#2ed573,#a8e6cf,#2ed573,#1a4a1a); animation: frameSwordGlow 2s infinite, frameSpin 8s linear infinite; }
+        /* Молния — Пикачу/Зэнитцу */
+        @keyframes frameLightning { 0%,90%,100%{opacity:1} 91%,95%{opacity:0.6} 93%,97%{opacity:1} }
+        .frame-lightning { background: conic-gradient(#f9ca24,#fff176,#f39c12,#f9ca24); animation: frameLightning 3s infinite, frameSpin 3s linear infinite; }
+        /* Розовая магия — для новичков */
+        .frame-pink { background: conic-gradient(#ff6b9d,#fd79a8,#ffeaa7,#ff6b9d); animation: frameSpin 6s linear infinite; }
+        /* Золото — премиум DEV */
+        @keyframes frameGold { 0%,100%{box-shadow:0 0 8px #f9ca24} 50%{box-shadow:0 0 20px #f9ca24,0 0 35px rgba(249,202,36,0.5)} }
+        .frame-gold { background: conic-gradient(#f9ca24,#fff8dc,#f39c12,#ffd700,#f9ca24); animation: frameGold 2s infinite, frameSpin 4s linear infinite; }
+        /* Специальная DEV рамка */
+        @keyframes frameDevRainbow { 0%{filter:hue-rotate(0deg)} 100%{filter:hue-rotate(360deg)} }
+        .frame-dev { background: conic-gradient(#ff6b9d,#f9ca24,#2ed573,#4dc9f6,#a29bfe,#ff6b9d); animation: frameDevRainbow 3s linear infinite, frameSpin 5s linear infinite; }
+        /* Космическая DEV рамка */
+        @keyframes frameCosmicPulse { 0%,100%{box-shadow:0 0 10px #6c5ce7,0 0 20px #a29bfe} 50%{box-shadow:0 0 20px #fd79a8,0 0 40px #6c5ce7,0 0 60px rgba(162,155,254,0.3)} }
+        .frame-cosmic { background: conic-gradient(#0a0014,#6c5ce7,#a29bfe,#fd79a8,#f9ca24,#a29bfe,#0a0014); animation: frameCosmicPulse 2s infinite, frameSpin 6s linear infinite; }
+        /* Матрица DEV рамка */
+        @keyframes frameMatrixGlow { 0%,100%{filter:brightness(1) saturate(1)} 50%{filter:brightness(1.6) saturate(2) drop-shadow(0 0 8px #2ed573)} }
+        .frame-matrix { background: conic-gradient(#003300,#2ed573,#00ff41,#2ed573,#003300); animation: frameMatrixGlow 1.5s infinite, frameSpin 4s linear infinite; }
+        /* Кровь и огонь DEV рамка */
+        @keyframes frameBloodFire { 0%{filter:hue-rotate(0deg) brightness(1)} 33%{filter:hue-rotate(-10deg) brightness(1.3)} 66%{filter:hue-rotate(10deg) brightness(0.9)} 100%{filter:hue-rotate(0deg) brightness(1)} }
+        .frame-bloodfire { background: conic-gradient(#1a0000,#8b0000,#ff4500,#ff8c00,#ff4500,#8b0000,#1a0000); animation: frameBloodFire 2s infinite, frameSpin 5s linear infinite; }
+        /* Кристалл DEV рамка */
+        @keyframes frameCrystalShine { 0%,100%{box-shadow:0 0 8px #4dc9f6,0 0 16px rgba(77,201,246,0.4)} 25%{box-shadow:0 0 12px #fff,0 0 24px #4dc9f6} 50%{box-shadow:0 0 8px #a29bfe,0 0 20px rgba(162,155,254,0.5)} 75%{box-shadow:0 0 12px #fff,0 0 24px #fd79a8} }
+        .frame-crystal { background: conic-gradient(#dfe6e9,#74b9ff,#fff,#a29bfe,#fd79a8,#fff,#74b9ff,#dfe6e9); animation: frameCrystalShine 2.5s infinite, frameSpin 8s linear infinite; }
+        /* Общий спин */
+        @keyframes frameSpin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+
         @keyframes notifSlideIn {
             from { opacity:0; transform:translateY(-8px) scale(0.97); }
             to   { opacity:1; transform:translateY(0) scale(1); }
@@ -435,7 +500,191 @@ alter publication supabase_realtime add table anime_room_chat;
             text-align: center;
         }
 
-        /* ===== АДАПТИВНОСТЬ ===== */
+        /* === Медали за уровень (аниме-стиль) === */
+        .medal-badge {
+            display: inline-flex; align-items: center; gap: 3px;
+            padding: 2px 7px; border-radius: 10px; font-size: 10px; font-weight: 700;
+            vertical-align: middle; margin-left: 4px; position: relative; overflow: hidden;
+            cursor: default; user-select: none;
+        }
+        /* ═══════════════════════════════════════════════
+           РАМКИ ДЛЯ ФОТО В ПОСТАХ (аниме-персонажи)
+        ═══════════════════════════════════════════════ */
+        .photo-frame-wrap {
+            position: relative;
+            display: inline-block;
+            width: 100%;
+            margin: 8px 0;
+        }
+        .photo-frame-wrap img.post-image {
+            margin: 0 !important;
+            border-radius: 0 !important;
+            display: block;
+            width: 100%;
+        }
+        /* Общие стили оверлея рамки */
+        .photo-frame-overlay {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            z-index: 2;
+        }
+        /* ── Рамка: Кимэцу-но Яйба (Танджиро + Незуко) ── */
+        .pf-kimetsu .photo-frame-overlay { border: 3px solid #2e6b2e; box-shadow: inset 0 0 0 2px #1a3d1a, 0 0 20px rgba(46,107,46,0.5); }
+        .pf-kimetsu .pf-char-left,.pf-kimetsu .pf-char-right { position:absolute; bottom:-2px; z-index:3; pointer-events:none; height:90px; filter:drop-shadow(0 0 8px rgba(46,107,46,0.8)); }
+        .pf-kimetsu .pf-char-left { left:-6px; }
+        .pf-kimetsu .pf-char-right { right:-6px; transform:scaleX(-1); }
+        .pf-kimetsu .pf-corner { position:absolute; width:24px; height:24px; }
+        .pf-kimetsu .pf-corner-tl { top:0;left:0; border-top:4px solid #8bc34a; border-left:4px solid #8bc34a; }
+        .pf-kimetsu .pf-corner-tr { top:0;right:0; border-top:4px solid #8bc34a; border-right:4px solid #8bc34a; }
+        .pf-kimetsu .pf-corner-bl { bottom:0;left:0; border-bottom:4px solid #8bc34a; border-left:4px solid #8bc34a; }
+        .pf-kimetsu .pf-corner-br { bottom:0;right:0; border-bottom:4px solid #8bc34a; border-right:4px solid #8bc34a; }
+        /* ── Рамка: Токийский Гуль (Канеки) ── */
+        .pf-ghoul .photo-frame-overlay { border: 3px solid #6b0000; box-shadow: inset 0 0 0 2px #3d0000, 0 0 24px rgba(180,0,0,0.5); }
+        .pf-ghoul .pf-char-left,.pf-ghoul .pf-char-right { position:absolute; bottom:-2px; z-index:3; pointer-events:none; height:90px; filter:drop-shadow(0 0 8px rgba(180,0,0,0.9)); }
+        .pf-ghoul .pf-char-left { left:-6px; }
+        .pf-ghoul .pf-char-right { right:-6px; transform:scaleX(-1); }
+        .pf-ghoul .pf-corner { position:absolute; width:24px; height:24px; }
+        .pf-ghoul .pf-corner-tl { top:0;left:0; border-top:4px solid #cc0000; border-left:4px solid #cc0000; }
+        .pf-ghoul .pf-corner-tr { top:0;right:0; border-top:4px solid #cc0000; border-right:4px solid #cc0000; }
+        .pf-ghoul .pf-corner-bl { bottom:0;left:0; border-bottom:4px solid #cc0000; border-left:4px solid #cc0000; }
+        .pf-ghoul .pf-corner-br { bottom:0;right:0; border-bottom:4px solid #cc0000; border-right:4px solid #cc0000; }
+        /* ── Рамка: Ван-Пис (Луффи + Зоро) ── */
+        .pf-onepiece .photo-frame-overlay { border: 3px solid #c8860a; box-shadow: inset 0 0 0 2px #7a4e00, 0 0 20px rgba(200,134,10,0.5); }
+        .pf-onepiece .pf-char-left,.pf-onepiece .pf-char-right { position:absolute; bottom:-2px; z-index:3; pointer-events:none; height:88px; filter:drop-shadow(0 0 8px rgba(200,134,10,0.8)); }
+        .pf-onepiece .pf-char-left { left:-4px; }
+        .pf-onepiece .pf-char-right { right:-4px; transform:scaleX(-1); }
+        .pf-onepiece .pf-corner { position:absolute; width:24px; height:24px; }
+        .pf-onepiece .pf-corner-tl { top:0;left:0; border-top:4px solid #f9ca24; border-left:4px solid #f9ca24; }
+        .pf-onepiece .pf-corner-tr { top:0;right:0; border-top:4px solid #f9ca24; border-right:4px solid #f9ca24; }
+        .pf-onepiece .pf-corner-bl { bottom:0;left:0; border-bottom:4px solid #f9ca24; border-left:4px solid #f9ca24; }
+        .pf-onepiece .pf-corner-br { bottom:0;right:0; border-bottom:4px solid #f9ca24; border-right:4px solid #f9ca24; }
+        /* ── Рамка: Наруто ── */
+        .pf-naruto .photo-frame-overlay { border: 3px solid #e07b00; box-shadow: inset 0 0 0 2px #7a3e00, 0 0 20px rgba(224,123,0,0.5); }
+        .pf-naruto .pf-char-left,.pf-naruto .pf-char-right { position:absolute; bottom:-2px; z-index:3; pointer-events:none; height:88px; filter:drop-shadow(0 0 10px rgba(255,165,0,0.9)); }
+        .pf-naruto .pf-char-left { left:-4px; }
+        .pf-naruto .pf-char-right { right:-4px; transform:scaleX(-1); }
+        .pf-naruto .pf-corner { position:absolute; width:24px; height:24px; }
+        .pf-naruto .pf-corner-tl { top:0;left:0; border-top:4px solid #ff8c00; border-left:4px solid #ff8c00; }
+        .pf-naruto .pf-corner-tr { top:0;right:0; border-top:4px solid #ff8c00; border-right:4px solid #ff8c00; }
+        .pf-naruto .pf-corner-bl { bottom:0;left:0; border-bottom:4px solid #ff8c00; border-left:4px solid #ff8c00; }
+        .pf-naruto .pf-corner-br { bottom:0;right:0; border-bottom:4px solid #ff8c00; border-right:4px solid #ff8c00; }
+        /* ── Рамка: Атака Титанов ── */
+        .pf-aot .photo-frame-overlay { border: 3px solid #4a5568; box-shadow: inset 0 0 0 2px #2d3748, 0 0 20px rgba(74,85,104,0.6); }
+        .pf-aot .pf-char-left,.pf-aot .pf-char-right { position:absolute; bottom:-2px; z-index:3; pointer-events:none; height:90px; filter:drop-shadow(0 0 8px rgba(120,140,160,0.8)); }
+        .pf-aot .pf-char-left { left:-4px; }
+        .pf-aot .pf-char-right { right:-4px; transform:scaleX(-1); }
+        .pf-aot .pf-corner { position:absolute; width:24px; height:24px; }
+        .pf-aot .pf-corner-tl { top:0;left:0; border-top:4px solid #a0b0c0; border-left:4px solid #a0b0c0; }
+        .pf-aot .pf-corner-tr { top:0;right:0; border-top:4px solid #a0b0c0; border-right:4px solid #a0b0c0; }
+        .pf-aot .pf-corner-bl { bottom:0;left:0; border-bottom:4px solid #a0b0c0; border-left:4px solid #a0b0c0; }
+        .pf-aot .pf-corner-br { bottom:0;right:0; border-bottom:4px solid #a0b0c0; border-right:4px solid #a0b0c0; }
+        /* ── Рамка: Дракон (золотой) ── */
+        @keyframes dragonGlow { 0%,100%{box-shadow:inset 0 0 0 2px #7a5800, 0 0 18px rgba(200,150,0,0.5)} 50%{box-shadow:inset 0 0 0 2px #7a5800, 0 0 32px rgba(249,202,36,0.8)} }
+        .pf-dragon .photo-frame-overlay { border: 3px solid #c8a000; animation: dragonGlow 3s infinite; }
+        .pf-dragon .pf-char-left,.pf-dragon .pf-char-right { position:absolute; bottom:-2px; z-index:3; pointer-events:none; height:96px; filter:drop-shadow(0 0 10px rgba(249,202,36,1)); }
+        .pf-dragon .pf-char-left { left:-8px; }
+        .pf-dragon .pf-char-right { right:-8px; transform:scaleX(-1); }
+        .pf-dragon .pf-corner { position:absolute; width:28px; height:28px; }
+        .pf-dragon .pf-corner-tl { top:0;left:0; border-top:4px solid #f9ca24; border-left:4px solid #f9ca24; }
+        .pf-dragon .pf-corner-tr { top:0;right:0; border-top:4px solid #f9ca24; border-right:4px solid #f9ca24; }
+        .pf-dragon .pf-corner-bl { bottom:0;left:0; border-bottom:4px solid #f9ca24; border-left:4px solid #f9ca24; }
+        .pf-dragon .pf-corner-br { bottom:0;right:0; border-bottom:4px solid #f9ca24; border-right:4px solid #f9ca24; }
+        /* ── Рамка: Dragon Ball Z ── */
+        @keyframes dbzAura { 0%,100%{box-shadow:inset 0 0 0 2px #f9ca24, 0 0 20px rgba(249,202,36,0.6)} 50%{box-shadow:inset 0 0 0 3px #fff, 0 0 40px rgba(249,202,36,1), 0 0 60px rgba(255,200,0,0.4)} }
+        .pf-dbz .photo-frame-overlay { border: 3px solid #f9ca24; animation: dbzAura 1.5s infinite; }
+        .pf-dbz .pf-char-left,.pf-dbz .pf-char-right { position:absolute; bottom:-2px; z-index:3; pointer-events:none; height:96px; filter:drop-shadow(0 0 12px rgba(249,202,36,1)); }
+        .pf-dbz .pf-char-left { left:-6px; }
+        .pf-dbz .pf-char-right { right:-6px; transform:scaleX(-1); }
+        .pf-dbz .pf-corner { position:absolute; width:26px; height:26px; }
+        .pf-dbz .pf-corner-tl { top:0;left:0; border-top:4px solid #ff8c00; border-left:4px solid #ff8c00; }
+        .pf-dbz .pf-corner-tr { top:0;right:0; border-top:4px solid #ff8c00; border-right:4px solid #ff8c00; }
+        .pf-dbz .pf-corner-bl { bottom:0;left:0; border-bottom:4px solid #ff8c00; border-left:4px solid #ff8c00; }
+        .pf-dbz .pf-corner-br { bottom:0;right:0; border-bottom:4px solid #ff8c00; border-right:4px solid #ff8c00; }
+        /* ── Рамка: My Hero Academia ── */
+        @keyframes mhaPulse { 0%,100%{box-shadow:inset 0 0 0 2px #003a8c, 0 0 16px rgba(0,100,220,0.5)} 50%{box-shadow:inset 0 0 0 3px #4dc9f6, 0 0 32px rgba(77,201,246,0.7)} }
+        .pf-mha .photo-frame-overlay { border: 3px solid #1565c0; animation: mhaPulse 2s infinite; }
+        .pf-mha .pf-char-left,.pf-mha .pf-char-right { position:absolute; bottom:-2px; z-index:3; pointer-events:none; height:96px; filter:drop-shadow(0 0 10px rgba(77,201,246,0.9)); }
+        .pf-mha .pf-char-left { left:-6px; }
+        .pf-mha .pf-char-right { right:-6px; transform:scaleX(-1); }
+        .pf-mha .pf-corner { position:absolute; width:26px; height:26px; }
+        .pf-mha .pf-corner-tl { top:0;left:0; border-top:4px solid #4dc9f6; border-left:4px solid #4dc9f6; }
+        .pf-mha .pf-corner-tr { top:0;right:0; border-top:4px solid #4dc9f6; border-right:4px solid #4dc9f6; }
+        .pf-mha .pf-corner-bl { bottom:0;left:0; border-bottom:4px solid #4dc9f6; border-left:4px solid #4dc9f6; }
+        .pf-mha .pf-corner-br { bottom:0;right:0; border-bottom:4px solid #4dc9f6; border-right:4px solid #4dc9f6; }
+        /* ── Рамка: Jujutsu Kaisen ── */
+        @keyframes jjkPulse { 0%,100%{box-shadow:inset 0 0 0 2px #1a0030, 0 0 18px rgba(130,0,200,0.5)} 50%{box-shadow:inset 0 0 0 3px #a29bfe, 0 0 36px rgba(162,155,254,0.8)} }
+        .pf-jjk .photo-frame-overlay { border: 3px solid #6c00c0; animation: jjkPulse 2s infinite; }
+        .pf-jjk .pf-char-left,.pf-jjk .pf-char-right { position:absolute; bottom:-2px; z-index:3; pointer-events:none; height:96px; filter:drop-shadow(0 0 12px rgba(162,155,254,0.9)); }
+        .pf-jjk .pf-char-left { left:-6px; }
+        .pf-jjk .pf-char-right { right:-6px; transform:scaleX(-1); }
+        .pf-jjk .pf-corner { position:absolute; width:26px; height:26px; }
+        .pf-jjk .pf-corner-tl { top:0;left:0; border-top:4px solid #a29bfe; border-left:4px solid #a29bfe; }
+        .pf-jjk .pf-corner-tr { top:0;right:0; border-top:4px solid #a29bfe; border-right:4px solid #a29bfe; }
+        .pf-jjk .pf-corner-bl { bottom:0;left:0; border-bottom:4px solid #a29bfe; border-left:4px solid #a29bfe; }
+        .pf-jjk .pf-corner-br { bottom:0;right:0; border-bottom:4px solid #a29bfe; border-right:4px solid #a29bfe; }
+        /* ── Рамка: Клинок, рассекающий демонов — Незуко ── */
+        @keyframes nezukoPulse { 0%,100%{box-shadow:inset 0 0 0 2px #7a0030, 0 0 16px rgba(220,0,80,0.45)} 50%{box-shadow:inset 0 0 0 3px #fd79a8, 0 0 30px rgba(253,121,168,0.7)} }
+        .pf-nezuko .photo-frame-overlay { border: 3px solid #c0005a; animation: nezukoPulse 2s infinite; }
+        .pf-nezuko .pf-char-left,.pf-nezuko .pf-char-right { position:absolute; bottom:-2px; z-index:3; pointer-events:none; height:96px; filter:drop-shadow(0 0 10px rgba(253,121,168,0.9)); }
+        .pf-nezuko .pf-char-left { left:-6px; }
+        .pf-nezuko .pf-char-right { right:-6px; transform:scaleX(-1); }
+        .pf-nezuko .pf-corner { position:absolute; width:26px; height:26px; }
+        .pf-nezuko .pf-corner-tl { top:0;left:0; border-top:4px solid #fd79a8; border-left:4px solid #fd79a8; }
+        .pf-nezuko .pf-corner-tr { top:0;right:0; border-top:4px solid #fd79a8; border-right:4px solid #fd79a8; }
+        .pf-nezuko .pf-corner-bl { bottom:0;left:0; border-bottom:4px solid #fd79a8; border-left:4px solid #fd79a8; }
+        .pf-nezuko .pf-corner-br { bottom:0;right:0; border-bottom:4px solid #fd79a8; border-right:4px solid #fd79a8; }
+        /* Паддинг внутри рамок чтобы персонажи не перекрывали фото */
+        .pf-kimetsu, .pf-ghoul, .pf-onepiece, .pf-naruto, .pf-aot, .pf-dragon,
+        .pf-dbz, .pf-mha, .pf-jjk, .pf-nezuko {
+            padding-bottom: 30px;
+            padding-left: 10px;
+            padding-right: 10px;
+        }
+        /* LVL 1: Новичок — серый */
+        .medal-newbie { background: linear-gradient(135deg,#1a1a1a,#555,#888); border: 1px solid #666; color: #ccc; }
+        /* LVL 2: Генин — зелёный */
+        .medal-genin { background: linear-gradient(135deg,#0a2010,#1a5c2a,#2ed573); border: 1px solid #2ed573; color: #fff; }
+        /* LVL 3: Чунин — синий */
+        .medal-chunin { background: linear-gradient(135deg,#0d2137,#1a4a7a,#4dc9f6); border: 1px solid #4dc9f6; color: #fff; }
+        /* LVL 4: Специалист — бирюза */
+        @keyframes medalSpecGlow { 0%,100%{box-shadow:0 0 4px #00cec9} 50%{box-shadow:0 0 10px #00cec9,0 0 18px rgba(0,206,201,0.35)} }
+        .medal-spec { background: linear-gradient(135deg,#003333,#006666,#00cec9); border: 1px solid #00cec9; color: #fff; animation: medalSpecGlow 2.5s infinite; }
+        /* LVL 5: Джонин — фиолетовый пульс */
+        @keyframes medalJoninGlow { 0%,100%{box-shadow:0 0 5px #a29bfe} 50%{box-shadow:0 0 14px #a29bfe,0 0 24px rgba(162,155,254,0.4)} }
+        .medal-jonin { background: linear-gradient(135deg,#120a2e,#3d1f8a,#a29bfe); border: 1px solid #a29bfe; color: #fff; animation: medalJoninGlow 2s infinite; }
+        /* LVL 6: Мастер — оранжевый */
+        @keyframes medalMasterFlame { 0%,100%{filter:brightness(1) saturate(1)} 50%{filter:brightness(1.3) saturate(1.6)} }
+        .medal-master { background: linear-gradient(135deg,#2a0e00,#b84c00,#ff8c00); border: 1px solid #ff8c00; color: #fff; animation: medalMasterFlame 1.8s infinite; }
+        /* LVL 7: Элита — малиновый */
+        @keyframes medalElitePulse { 0%,100%{box-shadow:0 0 6px #e84393} 50%{box-shadow:0 0 16px #e84393,0 0 28px rgba(232,67,147,0.4)} }
+        .medal-elite { background: linear-gradient(135deg,#25001a,#7a0048,#e84393); border: 1px solid #e84393; color: #fff; animation: medalElitePulse 2s infinite; }
+        /* LVL 8: АНБУ — красный мерцающий */
+        @keyframes medalAnbuPulse { 0%,100%{filter:brightness(1)} 50%{filter:brightness(1.45) saturate(1.6)} }
+        .medal-anbu { background: linear-gradient(135deg,#280000,#6b0000,#ff4757); border: 1px solid #ff4757; color: #fff; animation: medalAnbuPulse 1.6s infinite; }
+        /* LVL 10: Каге — золотой блеск */
+        @keyframes medalKageSpin { 0%{filter:hue-rotate(0deg) brightness(1)} 50%{filter:hue-rotate(18deg) brightness(1.35)} 100%{filter:hue-rotate(0deg) brightness(1)} }
+        .medal-kage { background: linear-gradient(135deg,#2a1800,#8a5a00,#f9ca24,#e17055); border: 1px solid #f9ca24; color: #1a0e00; font-weight: 900; animation: medalKageSpin 2s infinite; }
+        /* LVL 12: Ховаге — серебряный + синий */
+        @keyframes medalHokageShine { 0%,100%{box-shadow:0 0 6px #c0d8ff} 33%{box-shadow:0 0 14px #fff,0 0 24px #4dc9f6} 66%{box-shadow:0 0 10px #a0c0ff} }
+        .medal-hokage { background: linear-gradient(135deg,#0a0f1a,#1a3060,#4dc9f6,#c0d8ff); border: 1px solid #c0d8ff; color: #fff; animation: medalHokageShine 2.5s infinite; text-shadow:0 0 6px rgba(0,0,0,0.8); }
+        /* LVL 15: Легенда — радужная переливка */
+        @keyframes medalLegend { 0%{filter:hue-rotate(0deg) brightness(1.1)} 100%{filter:hue-rotate(360deg) brightness(1.1)} }
+        .medal-legend { background: conic-gradient(#ff6b9d,#f9ca24,#2ed573,#4dc9f6,#a29bfe,#ff6b9d); border: none; color: #fff; animation: medalLegend 4s linear infinite; text-shadow: 0 0 6px rgba(0,0,0,0.8); }
+        /* LVL 20: Бог — белое пламя */
+        @keyframes medalGodFlame { 0%,100%{box-shadow:0 0 10px #fff,0 0 20px #a29bfe;filter:brightness(1)} 50%{box-shadow:0 0 20px #fff,0 0 40px #fd79a8,0 0 60px rgba(255,255,255,0.3);filter:brightness(1.3)} }
+        .medal-god { background: conic-gradient(#fff,#f9ca24,#fd79a8,#a29bfe,#4dc9f6,#fff); border: 2px solid #fff; color: #000; animation: medalGodFlame 2s infinite; font-weight:900; text-shadow:none; }
+
+        /* ── DEV медали (выдаются только девами) ──────────────────────── */
+        @keyframes medalDevPulse { 0%,100%{box-shadow:0 0 6px #4dc9f6} 50%{box-shadow:0 0 16px #ff6b9d,0 0 28px rgba(255,107,157,0.4)} }
+        .medal-dev-akatsuki { background: linear-gradient(135deg,#1a0000,#8b0000,#cc0000); border: 1px solid #cc0000; color: #fff; animation: medalAnbuPulse 1.5s infinite; }
+        .medal-dev-shinigami { background: linear-gradient(135deg,#050505,#1a1a1a,#3a3a3a); border: 1px solid #888; color: #ddd; }
+        .medal-dev-titan { background: linear-gradient(135deg,#3a1a00,#8b4513,#d4a853); border: 1px solid #d4a853; color: #fff; animation: medalKageSpin 3s infinite; }
+        .medal-dev-susanoo { background: linear-gradient(135deg,#001a3a,#0047ab,#4dc9f6); border: 1px solid #4dc9f6; color: #fff; animation: medalJoninGlow 1.5s infinite; }
+        .medal-dev-infinity { background: conic-gradient(#4dc9f6,#a29bfe,#6c5ce7,#4dc9f6); border: none; color: #fff; animation: medalLegend 3s linear infinite; text-shadow: 0 0 6px rgba(0,0,0,0.9); }
+        .medal-dev-creator { background: conic-gradient(#ff6b9d,#f9ca24,#2ed573,#4dc9f6,#a29bfe,#ff6b9d); border: 2px solid #f9ca24; color: #fff; animation: medalLegend 2s linear infinite; text-shadow: 0 1px 4px rgba(0,0,0,0.9); font-size: 11px; }
+
+        /* Адаптивность */
         @media (max-width: 600px) {
             .header { padding: 8px 12px; }
             .logo { font-size: 18px; }
@@ -474,7 +723,7 @@ alter publication supabase_realtime add table anime_room_chat;
         <div style="display:flex; align-items:center; gap:12px;">
             <div class="logo" onclick="goHome()">にじ Niji</div>
             <div onclick="showChangelog()" style="background:var(--surface2); color:var(--text2); font-size:11px; padding:2px 9px; border-radius:999px; cursor:pointer; border:1px solid var(--border); user-select:none;">
-                v2.3
+                v2.8
             </div>
         </div>
         <div class="header-right" id="headerRight"></div>
@@ -712,6 +961,20 @@ alter publication supabase_realtime add table anime_room_chat;
                         <img id="postInput-preview-img" style="max-width:100%; max-height:220px; border-radius:10px; border:1px solid var(--border); display:block;">
                         <span onclick="clearPostPhoto('postInput')" style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,0.65);color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;font-weight:700;">✕</span>
                     </div>
+
+                    <!-- Выбор рамки (появляется когда есть фото) -->
+                    <div id="postInput-frame-row" style="display:none; margin:6px 0 4px; align-items:center; gap:8px; flex-wrap:wrap;">
+                        <span style="font-size:11px; color:var(--text2);">🖼️ Рамка:</span>
+                        <select id="postInput-frame-select" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:8px;font-size:12px;font-family:inherit;cursor:pointer;">
+                            <option value="">— Без рамки</option>
+                            <option value="kimetsu">🗡️ Клинок (KnY)</option>
+                            <option value="ghoul">👁️ Гуль (TG)</option>
+                            <option value="onepiece">☠️ Пираты (OP)</option>
+                            <option value="naruto">🌀 Наруто</option>
+                            <option value="aot">⚔️ Атака Титанов</option>
+                            <option value="dragon">🐉 Дракон</option>
+                        </select>
+                    </div>
                     
                     <div class="row">
                         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
@@ -735,7 +998,17 @@ alter publication supabase_realtime add table anime_room_chat;
             if (!posts || posts.length === 0) {
                 html += '<div class="card" style="text-align:center;color:var(--text2);">🌸 Пока нет постов</div>';
             } else {
+                // Подтягиваем dev_medal и avatar_frame из users для авторов
+                const uniqueLogins = [...new Set(posts.map(p => p.user_login))];
+                let authorMap = {};
+                if (uniqueLogins.length > 0) {
+                    const { data: authors } = await SB.from('users').select('login, dev_medal, avatar_frame').in('login', uniqueLogins);
+                    (authors || []).forEach(a => { authorMap[a.login] = a; });
+                }
                 for (const post of posts) {
+                    const author = authorMap[post.user_login] || {};
+                    post.dev_medal = post.dev_medal || author.dev_medal || null;
+                    post.avatar_frame = post.avatar_frame || author.avatar_frame || null;
                     html += buildPostCard(post);
                 }
             }
@@ -759,6 +1032,7 @@ alter publication supabase_realtime add table anime_room_chat;
                             <span data-user-login="${post.user_login}">${esc(post.username)}</span>
                             ${post.is_verified ? `<span style="margin-left:4px; font-size:16px; filter: drop-shadow(0 0 4px #4dc9f6);">💎</span>` : ''}
                             <span data-lvl-badge style="font-size:10px; background:linear-gradient(90deg, #ff6b9d, #4dc9f6); color:#fff; padding:2px 8px; border-radius:10px; margin-left:6px; font-weight:600; box-shadow:0 0 6px rgba(255,107,157,0.4);">LVL ${post.level || 1}</span>
+                            ${getLevelMedal(post.level, post.user_login, post.dev_medal)}
                             ${devBadge(post.user_login)}
                         </div>
                         <div class="post-time">${time}</div>
@@ -769,9 +1043,7 @@ alter publication supabase_realtime add table anime_room_chat;
                 ${post.tag ? '<span class="post-tag">🎬 ' + esc(post.tag) + '</span>' : ''}
                 <div class="post-text">${esc(post.content)}</div>
                 
-                ${post.image_url ? `
-                    <img src="${post.image_url}" class="post-image" alt="post image" onerror="this.style.display='none'; console.log('Image failed to load:', this.src)">
-                ` : ''}
+                ${post.image_url ? buildPhotoFrame(post.image_url, post.photo_frame) : ''}
                 
                 <div class="actions">
                     <button class="act" onclick="toggleLike('${post.id}')">❤️ <span id="lc-${post.id}">...</span></button>
@@ -844,7 +1116,7 @@ alter publication supabase_realtime add table anime_room_chat;
             let userMap = {};
             if (comments && comments.length > 0) {
                 const logins = [...new Set(comments.map(c => c.user_login))];
-                const { data: usersData } = await SB.from('users').select('login, username, avatar_url').in('login', logins);
+                const { data: usersData } = await SB.from('users').select('login, username, avatar_url, avatar_frame').in('login', logins);
                 const avatarCache = JSON.parse(localStorage.getItem('niji_avatars') || '{}');
                 (usersData || []).forEach(u => {
                     if (!u.avatar_url && avatarCache[u.login]) u.avatar_url = avatarCache[u.login];
@@ -1058,7 +1330,7 @@ alter publication supabase_realtime add table anime_room_chat;
             } else {
                 // Загружаем данные пользователей для аватаров
                 const logins = list.map(d => d.login);
-                const { data: usersData } = await SB.from('users').select('login, username, avatar_url').in('login', logins);
+                const { data: usersData } = await SB.from('users').select('login, username, avatar_url, avatar_frame').in('login', logins);
                 const userMap = {};
                 (usersData || []).forEach(u => {
                     // Подставляем avatar из localStorage если нет в БД
@@ -1126,7 +1398,7 @@ alter publication supabase_realtime add table anime_room_chat;
 
             // Загружаем аватар собеседника
             let partnerObj = { login: chatWith.login, username: chatWith.username, avatar_url: null };
-            const { data: partnerData } = await SB.from('users').select('login, username, avatar_url').eq('login', chatWith.login).single();
+            const { data: partnerData } = await SB.from('users').select('login, username, avatar_url, avatar_frame').eq('login', chatWith.login).single();
             if (partnerData) {
                 if (!partnerData.avatar_url) {
                     const avatarMap = JSON.parse(localStorage.getItem('niji_avatars') || '{}');
@@ -1781,10 +2053,11 @@ alter publication supabase_realtime add table anime_room_chat;
                     <div style="color:var(--text2);">@${esc(profileLogin)}</div>
 
                     <!-- Уровень и репутация -->
-                    <div style="margin-top:10px; display:flex; justify-content:center; align-items:center; gap:12px;">
+                    <div style="margin-top:10px; display:flex; justify-content:center; align-items:center; gap:12px; flex-wrap:wrap;">
                         <div style="background:linear-gradient(90deg, #ff6b9d, #4dc9f6); color:#fff; padding:4px 14px; border-radius:20px; font-weight:700; font-size:14px; box-shadow:0 0 10px rgba(255,107,157,0.5);">
                             LVL ${user.level || 1}
                         </div>
+                        ${getLevelMedal(user.level, profileLogin, user.dev_medal)}
                         <div style="background:#2a2a38; padding:4px 12px; border-radius:20px; font-size:13px; color:#ccc;">
                             Репутация: <strong style="color:#4dc9f6;">${user.reputation || 0}</strong>
                         </div>
@@ -1843,14 +2116,22 @@ alter publication supabase_realtime add table anime_room_chat;
                             <button class="btn btn-outline" style="border-color:var(--blue); color:var(--blue);" onclick="openCoverGallery()">
                                 🖼️ Обложка
                             </button>
+                            <button class="btn btn-outline" style="border-color:#a29bfe; color:#a29bfe;" onclick="openFrameGallery()">
+                                🖼️ Рамка
+                            </button>
+                            ${currentUser && DEVS.includes(currentUser.login.toLowerCase()) ? `
+                            <button class="btn btn-outline" style="border-color:#f9ca24; color:#f9ca24;" onclick="openDevFrameModal('${profileLogin}','${esc(user.username)}',${user.level||1})">
+                                👑 DEV-панель
+                            </button>` : ''}
                         </div>
                     ` : ''}
                     ${!isMe && currentUser && DEVS.includes(currentUser.login.toLowerCase()) ? `
-                        <div style="margin-top:10px;">
+                        <div style="margin-top:10px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
                             ${user.is_banned
                                 ? `<button class="btn btn-outline" style="border-color:#2ed573;color:#2ed573;" onclick="unbanUser('${profileLogin}')">✅ Разбанить</button>`
                                 : `<button class="btn" style="background:#ff4757;color:#fff;" onclick="openBanModal('${profileLogin}','${esc(user.username)}')">🔨 Заблокировать</button>`
                             }
+                            <button class="btn btn-outline" style="border-color:#f9ca24;color:#f9ca24;" onclick="openDevFrameModal('${profileLogin}','${esc(user.username)}',${user.level||1})">👑 Выдать рамку</button>
                         </div>
                     ` : ''}
                     </div>
@@ -1983,6 +2264,8 @@ alter publication supabase_realtime add table anime_room_chat;
             }
 
             const tagMatch = text.match(/#(\S+)/);
+            // Выбранная рамка для фото
+            const selectedPhotoFrame = document.getElementById(inputId + '-frame-select')?.value || null;
 
             // Перед публикацией берём свежий level из базы
             const { data: freshUser } = await SB.from('users').select('level, reputation').eq('login', currentUser.login).single();
@@ -1995,7 +2278,8 @@ alter publication supabase_realtime add table anime_room_chat;
                 tag: tagMatch ? tagMatch[1] : '',
                 image_url: imageUrl,
                 level: currentUser.level || 1,
-                avatar_url: currentUser.avatar_url || null
+                avatar_url: currentUser.avatar_url || null,
+                photo_frame: imageUrl ? (selectedPhotoFrame || null) : null
             }]);
 
             if (error) {
@@ -2006,7 +2290,9 @@ alter publication supabase_realtime add table anime_room_chat;
                         username: currentUser.username,
                         content: text || '',
                         tag: tagMatch ? tagMatch[1] : '',
-                        image_url: null
+                        image_url: null,
+                        level: currentUser.level || 1,
+                        avatar_url: currentUser.avatar_url || null
                     }]);
                     if (e2) return toast('❌ ' + e2.message, true);
                     toast('⚠️ Пост опубликован, но фото не прикрепилось (слишком большое)');
@@ -2437,6 +2723,9 @@ create table if not exists notifications (
                 previewImg.src = gallerySelectedSrc;
                 previewBox.style.display = 'block';
             }
+            // Показываем выбор рамки
+            const frameRow = document.getElementById(inputId + '-frame-row');
+            if (frameRow) frameRow.style.display = 'flex';
             document.getElementById('photoGalleryModal')?.remove();
             gallerySelectedSrc = null;
         }
@@ -2446,6 +2735,11 @@ create table if not exists notifications (
             const previewImg = document.getElementById(inputId + '-preview-img');
             if (previewBox) previewBox.style.display = 'none';
             if (previewImg) previewImg.src = '';
+            // Скрываем выбор рамки и сбрасываем
+            const frameRow = document.getElementById(inputId + '-frame-row');
+            if (frameRow) frameRow.style.display = 'none';
+            const frameSelect = document.getElementById(inputId + '-frame-select');
+            if (frameSelect) frameSelect.value = '';
         }
 
         // Превью картинки (старый хелпер, оставлен для совместимости)
@@ -2918,7 +3212,617 @@ create table if not exists notifications (
             { label: '🌺 Тропик', bg: 'linear-gradient(135deg,#00b894,#55efc4)' },
         ];
 
-        let selectedAvatarEmoji = '';
+        // === Рамки аватара — галерея и выдача ===
+        async function openFrameGallery() {
+            if (!currentUser) return;
+            const userLevel = currentUser.level || 1;
+            const { data: userData } = await SB.from('users').select('avatar_frame').eq('login', currentUser.login).single();
+            const currentFrame = userData?.avatar_frame || '';
+
+            const available = AVATAR_FRAMES.filter(f => !f.devOnly && userLevel >= f.minLevel);
+            const locked    = AVATAR_FRAMES.filter(f => !f.devOnly && userLevel < f.minLevel);
+            const devFrames = AVATAR_FRAMES.filter(f => f.devOnly);
+
+            let html = `<div id="frameGalleryModal" style="position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:999;display:flex;align-items:center;justify-content:center;padding:16px;">
+                <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px;width:100%;max-width:400px;max-height:85vh;overflow-y:auto;">
+                    <h3 style="margin-bottom:4px;font-size:16px;">🖼️ Рамки аватара</h3>
+                    <div style="font-size:11px;color:var(--text2);margin-bottom:14px;">Твой уровень: <strong style="color:var(--pink);">LVL ${userLevel}</strong></div>
+
+                    <div style="font-size:12px;color:var(--text2);margin-bottom:8px;font-weight:600;">✅ Доступные рамки</div>
+                    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px;">
+                        <div onclick="selectFrame('')" style="cursor:pointer;padding:10px;border-radius:12px;border:2px solid ${!currentFrame ? 'var(--pink)' : 'var(--border)'};background:var(--surface2);display:flex;align-items:center;gap:8px;">
+                            <div style="width:36px;height:36px;border-radius:50%;background:#2a2a38;border:2px dashed var(--border);flex-shrink:0;"></div>
+                            <span style="font-size:12px;">Без рамки</span>
+                        </div>
+                        ${available.map(f => `
+                        <div onclick="selectFrame('${f.id}')" style="cursor:pointer;padding:10px;border-radius:12px;border:2px solid ${currentFrame===f.id ? 'var(--pink)' : 'var(--border)'};background:var(--surface2);display:flex;align-items:center;gap:8px;">
+                            <div class="avatar-frame-wrap" style="width:44px;height:44px;flex-shrink:0;">
+                                <div class="av-frame ${f.css}" style="inset:-4px;"></div>
+                                <div style="position:relative;z-index:1;width:36px;height:36px;border-radius:50%;background:${color2(currentUser.login)};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px;">${(currentUser.username||'?')[0].toUpperCase()}</div>
+                            </div>
+                            <div>
+                                <div style="font-size:12px;font-weight:600;">${f.label}</div>
+                                <div style="font-size:10px;color:var(--text2);">LVL ${f.minLevel}+</div>
+                            </div>
+                        </div>`).join('')}
+                    </div>
+
+                    ${locked.length > 0 ? `
+                    <div style="font-size:12px;color:var(--text2);margin-bottom:8px;font-weight:600;">🔒 Заблокировано</div>
+                    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px;opacity:0.5;">
+                        ${locked.map(f => `
+                        <div style="padding:10px;border-radius:12px;border:2px solid var(--border);background:var(--surface2);display:flex;align-items:center;gap:8px;filter:grayscale(1);">
+                            <div class="avatar-frame-wrap" style="width:44px;height:44px;flex-shrink:0;">
+                                <div class="av-frame ${f.css}" style="inset:-4px;"></div>
+                                <div style="position:relative;z-index:1;width:36px;height:36px;border-radius:50%;background:#333;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;">?</div>
+                            </div>
+                            <div>
+                                <div style="font-size:12px;font-weight:600;">${f.label}</div>
+                                <div style="font-size:10px;color:#ff6b9d;">🔒 LVL ${f.minLevel}</div>
+                            </div>
+                        </div>`).join('')}
+                    </div>` : ''}
+
+                    ${devFrames.length > 0 ? `
+                    <div style="font-size:12px;color:var(--text2);margin-bottom:8px;font-weight:600;">⚙️ DEV-рамки</div>
+                    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px;opacity:0.5;filter:grayscale(1);">
+                        ${devFrames.map(f => `
+                        <div style="padding:10px;border-radius:12px;border:2px solid var(--border);background:var(--surface2);display:flex;align-items:center;gap:8px;">
+                            <div class="avatar-frame-wrap" style="width:44px;height:44px;flex-shrink:0;">
+                                <div class="av-frame ${f.css}" style="inset:-4px;"></div>
+                                <div style="position:relative;z-index:1;width:36px;height:36px;border-radius:50%;background:#333;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;">⭐</div>
+                            </div>
+                            <div>
+                                <div style="font-size:12px;font-weight:600;">${f.label}</div>
+                                <div style="font-size:10px;color:#f9ca24;">Выдаёт DEV</div>
+                            </div>
+                        </div>`).join('')}
+                    </div>` : ''}
+
+                    <div style="display:flex;gap:8px;">
+                        <button onclick="document.getElementById('frameGalleryModal').remove()" style="flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:10px;border-radius:10px;cursor:pointer;font-family:inherit;">Закрыть</button>
+                    </div>
+                </div>
+            </div>`;
+
+            document.body.insertAdjacentHTML('beforeend', html);
+        }
+
+        function color2(login) {
+            const colors = ['#ff6b9d','#4dc9f6','#2ed573','#f9ca24','#a29bfe','#fd79a8','#6c5ce7','#00b894'];
+            let h = 0; for (let i = 0; i < (login||'').length; i++) h = (login.charCodeAt(i) + h * 31) & 0xffffffff;
+            return colors[Math.abs(h) % colors.length];
+        }
+
+        async function selectFrame(frameId) {
+            if (!currentUser) return;
+            // Проверяем доступ
+            if (frameId) {
+                const f = getFrameDef(frameId);
+                if (!f) return;
+                if (f.devOnly) { toast('Эта рамка выдаётся только DEV-ами 👑', true); return; }
+                if ((currentUser.level || 1) < f.minLevel) { toast(`Нужен LVL ${f.minLevel} 🔒`, true); return; }
+            }
+            const val = frameId || null;
+            const { error } = await SB.from('users').update({ avatar_frame: val }).eq('login', currentUser.login);
+            if (error) {
+                console.error('Frame update error:', error);
+                toast('Ошибка сохранения. Добавь колонку avatar_frame в Supabase!', true);
+                return;
+            }
+            currentUser.avatar_frame = val;
+            document.getElementById('frameGalleryModal')?.remove();
+            toast(frameId ? `Рамка "${getFrameDef(frameId).label}" установлена! ✨` : 'Рамка снята');
+            await renderProfile();
+        }
+
+        async function openDevFrameModal(targetLogin, targetUsername, targetLevel) {
+            if (!currentUser || !DEVS.includes(currentUser.login.toLowerCase())) return;
+            const { data: tUser } = await SB.from('users').select('avatar_frame, dev_medal, level, reputation, is_banned, is_verified').eq('login', targetLogin).single();
+            const curFrame = tUser?.avatar_frame || '';
+            const curMedal = tUser?.dev_medal || '';
+            const curLevel = tUser?.level || 1;
+            const curRep   = tUser?.reputation || 0;
+            const isBanned = tUser?.is_banned || false;
+            const isVerified = tUser?.is_verified || false;
+
+            // Статистика сайта
+            const { count: totalUsers }  = await SB.from('users').select('*',{count:'exact',head:true});
+            const { count: totalPosts }  = await SB.from('posts').select('*',{count:'exact',head:true});
+            const { count: onlineUsers } = await SB.from('users').select('*',{count:'exact',head:true}).gte('last_seen', new Date(Date.now()-5*60*1000).toISOString());
+
+            const allFrames = AVATAR_FRAMES;
+            let html = `<div id="devFrameModal" style="position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:9999;display:flex;align-items:center;justify-content:center;padding:12px;overflow-y:auto;">
+                <div style="background:var(--surface);border:2px solid #f9ca24;border-radius:20px;padding:20px;width:100%;max-width:420px;max-height:92vh;overflow-y:auto;box-shadow:0 0 40px rgba(249,202,36,0.25);">
+
+                    <!-- Шапка -->
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+                        <div>
+                            <div style="font-size:16px;font-weight:800;">⚙️ DEV Панель</div>
+                            <div style="font-size:11px;color:var(--text2);margin-top:2px;">
+                                👤 <strong style="color:var(--blue);">${targetUsername}</strong>
+                                · LVL <strong style="color:#f9ca24;">${curLevel}</strong>
+                                · 💖 ${curRep}
+                                ${isBanned ? ' · <span style="color:#ff4757;">🔨 БАН</span>' : ''}
+                                ${isVerified ? ' · 💎' : ''}
+                            </div>
+                        </div>
+                        <button onclick="document.getElementById('devFrameModal').remove()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;">✕</button>
+                    </div>
+
+                    <!-- Табы (скролл) -->
+                    <div style="display:flex;gap:5px;margin-bottom:14px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none;">
+                        <button id="devTab_frame_btn"  onclick="switchDevTab('frame')"  style="flex-shrink:0;padding:7px 12px;border-radius:10px;background:var(--pink);border:none;color:#fff;font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;">🖼️ Рамка</button>
+                        <button id="devTab_medal_btn"  onclick="switchDevTab('medal')"  style="flex-shrink:0;padding:7px 12px;border-radius:10px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;">🏅 Медаль</button>
+                        <button id="devTab_medals_btn" onclick="switchDevTab('medals')" style="flex-shrink:0;padding:7px 12px;border-radius:10px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;">🎖️ Все медали</button>
+                        <button id="devTab_boost_btn"  onclick="switchDevTab('boost')"  style="flex-shrink:0;padding:7px 12px;border-radius:10px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;">⚡ Буст</button>
+                        <button id="devTab_stats_btn"  onclick="switchDevTab('stats')"  style="flex-shrink:0;padding:7px 12px;border-radius:10px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;">📊 Стат</button>
+                        <button id="devTab_tools_btn"  onclick="switchDevTab('tools')"  style="flex-shrink:0;padding:7px 12px;border-radius:10px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;">🛠️ Прочее</button>
+                        <button id="devTab_reset_btn"  onclick="switchDevTab('reset')"  style="flex-shrink:0;padding:7px 12px;border-radius:10px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;">🔄 Сброс</button>
+                    </div>
+
+                    <!-- Вкладка: Рамка -->
+                    <div id="devTab_frame">
+                        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px;">
+                            <div onclick="devGiveFrame('${targetLogin}','')" style="cursor:pointer;padding:10px;border-radius:12px;border:2px solid ${!curFrame?'var(--pink)':'var(--border)'};background:var(--surface2);display:flex;align-items:center;gap:8px;">
+                                <div style="width:36px;height:36px;border-radius:50%;background:#2a2a38;border:2px dashed var(--border);flex-shrink:0;"></div>
+                                <span style="font-size:12px;">Снять рамку</span>
+                            </div>
+                            ${allFrames.map(f => `
+                            <div onclick="devGiveFrame('${targetLogin}','${f.id}')" style="cursor:pointer;padding:10px;border-radius:12px;border:2px solid ${curFrame===f.id?'var(--pink)':'var(--border)'};background:var(--surface2);display:flex;align-items:center;gap:8px;">
+                                <div class="avatar-frame-wrap" style="width:44px;height:44px;flex-shrink:0;">
+                                    <div class="av-frame ${f.css}" style="inset:-4px;"></div>
+                                    <div style="position:relative;z-index:1;width:36px;height:36px;border-radius:50%;background:${color2(targetLogin)};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px;">${targetUsername[0].toUpperCase()}</div>
+                                </div>
+                                <div>
+                                    <div style="font-size:12px;font-weight:600;">${f.label}</div>
+                                    <div style="font-size:10px;color:${f.devOnly?'#f9ca24':'var(--text2)'};">${f.devOnly?'👑 DEV':('LVL '+f.minLevel+'+')}</div>
+                                </div>
+                            </div>`).join('')}
+                        </div>
+                    </div>
+
+                    <!-- Вкладка: Медаль -->
+                    <div id="devTab_medal" style="display:none;">
+                        <div style="display:grid;gap:8px;margin-bottom:14px;">
+                            <div onclick="devGiveMedal('${targetLogin}','')" style="cursor:pointer;padding:12px;border-radius:12px;border:2px solid ${!curMedal?'var(--pink)':'var(--border)'};background:var(--surface2);display:flex;align-items:center;gap:10px;">
+                                <span style="font-size:20px;">🚫</span>
+                                <div><div style="font-size:13px;font-weight:600;">Снять медаль</div><div style="font-size:11px;color:var(--text2);">Вернуть обычную по уровню</div></div>
+                            </div>
+                            ${DEV_MEDALS.map(m => `
+                            <div onclick="devGiveMedal('${targetLogin}','${m.id}')" style="cursor:pointer;padding:12px;border-radius:12px;border:2px solid ${curMedal===m.id?'var(--pink)':'var(--border)'};background:var(--surface2);display:flex;align-items:center;gap:10px;">
+                                <span class="medal-badge ${m.css}" style="margin-left:0;font-size:12px;padding:4px 10px;">${m.label}</span>
+                                <div><div style="font-size:12px;font-weight:600;">${m.label}</div><div style="font-size:10px;color:#f9ca24;">👑 DEV · ${m.desc}</div></div>
+                            </div>`).join('')}
+                        </div>
+                    </div>
+
+                    <!-- Вкладка: Буст -->
+                    <div id="devTab_boost" style="display:none;">
+                        <div style="margin-bottom:12px;">
+                            <div style="font-size:12px;color:var(--text2);margin-bottom:8px;">⚡ Установить уровень</div>
+                            <div style="display:flex;gap:8px;align-items:center;">
+                                <input id="devBoostLvl" type="number" min="1" max="99" value="${curLevel}" style="flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:10px;border-radius:10px;font-size:14px;font-family:inherit;">
+                                <button onclick="devSetLevel('${targetLogin}')" style="background:#f9ca24;color:#000;border:none;padding:10px 16px;border-radius:10px;cursor:pointer;font-family:inherit;font-weight:700;">Выдать</button>
+                            </div>
+                            <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
+                                ${[1,5,10,15,20,25,30,50].map(l=>`<button onclick="document.getElementById('devBoostLvl').value=${l}" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2);padding:4px 10px;border-radius:8px;cursor:pointer;font-size:12px;font-family:inherit;">LVL ${l}</button>`).join('')}
+                            </div>
+                        </div>
+                        <div style="height:1px;background:var(--border);margin:12px 0;"></div>
+                        <div style="margin-bottom:12px;">
+                            <div style="font-size:12px;color:var(--text2);margin-bottom:8px;">💖 Установить репутацию</div>
+                            <div style="display:flex;gap:8px;align-items:center;">
+                                <input id="devBoostRep" type="number" min="0" value="${curRep}" style="flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:10px;border-radius:10px;font-size:14px;font-family:inherit;">
+                                <button onclick="devSetRep('${targetLogin}')" style="background:#ff6b9d;color:#fff;border:none;padding:10px 16px;border-radius:10px;cursor:pointer;font-family:inherit;font-weight:700;">Выдать</button>
+                            </div>
+                        </div>
+                        <div style="height:1px;background:var(--border);margin:12px 0;"></div>
+                        <div>
+                            <div style="font-size:12px;color:var(--text2);margin-bottom:8px;">✉️ Личное уведомление</div>
+                            <textarea id="devNotifText" placeholder="Текст сообщения от DEV..." style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:10px;border-radius:10px;font-size:13px;font-family:inherit;resize:none;height:70px;box-sizing:border-box;"></textarea>
+                            <button onclick="devSendNotif('${targetLogin}')" style="margin-top:6px;width:100%;background:#a29bfe;color:#fff;border:none;padding:10px;border-radius:10px;cursor:pointer;font-family:inherit;font-weight:700;">📨 Отправить</button>
+                        </div>
+                    </div>
+
+                    <!-- Вкладка: Статистика -->
+                    <div id="devTab_stats" style="display:none;">
+                        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
+                            <div style="background:var(--surface2);border-radius:12px;padding:14px;text-align:center;">
+                                <div style="font-size:22px;font-weight:800;color:#2ed573;">${onlineUsers||0}</div>
+                                <div style="font-size:11px;color:var(--text2);margin-top:2px;">🟢 Онлайн</div>
+                            </div>
+                            <div style="background:var(--surface2);border-radius:12px;padding:14px;text-align:center;">
+                                <div style="font-size:22px;font-weight:800;color:#4dc9f6;">${totalUsers||0}</div>
+                                <div style="font-size:11px;color:var(--text2);margin-top:2px;">👥 Юзеров</div>
+                            </div>
+                            <div style="background:var(--surface2);border-radius:12px;padding:14px;text-align:center;">
+                                <div style="font-size:22px;font-weight:800;color:#f9ca24;">${totalPosts||0}</div>
+                                <div style="font-size:11px;color:var(--text2);margin-top:2px;">📝 Постов</div>
+                            </div>
+                        </div>
+                        <div style="background:var(--surface2);border-radius:12px;padding:14px;margin-bottom:10px;">
+                            <div style="font-size:12px;font-weight:700;margin-bottom:10px;color:var(--text2);">📢 Системное объявление</div>
+                            <textarea id="devAnnounceText" placeholder="Текст объявления для всех пользователей..." style="width:100%;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:10px;border-radius:10px;font-size:13px;font-family:inherit;resize:none;height:80px;box-sizing:border-box;margin-bottom:8px;"></textarea>
+                            <button onclick="devSendAnnounce()" style="width:100%;background:linear-gradient(90deg,#f9ca24,#e17055);color:#000;border:none;padding:11px;border-radius:10px;cursor:pointer;font-family:inherit;font-weight:800;font-size:13px;">📣 Разослать всем</button>
+                        </div>
+                        <div style="background:var(--surface2);border-radius:12px;padding:14px;">
+                            <div style="font-size:12px;font-weight:700;margin-bottom:8px;color:var(--text2);">🆕 Последние 5 регистраций</div>
+                            <div id="devRecentUsers" style="font-size:12px;color:var(--text2);">Загрузка...</div>
+                        </div>
+                    </div>
+
+                    <!-- Вкладка: Прочее -->
+                    <div id="devTab_tools" style="display:none;">
+                        <div style="display:grid;gap:10px;">
+                            <div style="background:var(--surface2);border-radius:12px;padding:14px;">
+                                <div style="font-size:12px;font-weight:700;margin-bottom:10px;">💎 Верификация</div>
+                                <div style="display:flex;gap:8px;">
+                                    <button onclick="devSetVerify('${targetLogin}',true)" style="flex:1;background:#4dc9f6;color:#000;border:none;padding:10px;border-radius:10px;cursor:pointer;font-family:inherit;font-weight:700;font-size:12px;">✅ Выдать 💎</button>
+                                    <button onclick="devSetVerify('${targetLogin}',false)" style="flex:1;background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:10px;border-radius:10px;cursor:pointer;font-family:inherit;font-size:12px;">❌ Снять</button>
+                                </div>
+                            </div>
+                            <div style="background:var(--surface2);border-radius:12px;padding:14px;">
+                                <div style="font-size:12px;font-weight:700;margin-bottom:10px;">🔨 Бан / Разбан</div>
+                                <div style="display:flex;gap:8px;">
+                                    <button onclick="openBanModal('${targetLogin}','${targetUsername}')" style="flex:1;background:#ff4757;color:#fff;border:none;padding:10px;border-radius:10px;cursor:pointer;font-family:inherit;font-weight:700;font-size:12px;">🔨 Заблокировать</button>
+                                    <button onclick="devUnban('${targetLogin}')" style="flex:1;background:#2ed573;color:#000;border:none;padding:10px;border-radius:10px;cursor:pointer;font-family:inherit;font-weight:700;font-size:12px;">✅ Разбанить</button>
+                                </div>
+                            </div>
+                            <div style="background:var(--surface2);border-radius:12px;padding:14px;">
+                                <div style="font-size:12px;font-weight:700;margin-bottom:10px;">🗑️ Очистить посты</div>
+                                <div style="font-size:11px;color:var(--text2);margin-bottom:8px;">Удалить все посты этого пользователя</div>
+                                <button onclick="devClearPosts('${targetLogin}','${targetUsername}')" style="width:100%;background:#2d0000;border:1px solid #ff4757;color:#ff4757;padding:10px;border-radius:10px;cursor:pointer;font-family:inherit;font-size:12px;">🗑️ Удалить все посты</button>
+                            </div>
+                            <div style="background:var(--surface2);border-radius:12px;padding:14px;">
+                                <div style="font-size:12px;font-weight:700;margin-bottom:10px;">📋 Копировать данные</div>
+                                <button onclick="devCopyInfo('${targetLogin}','${targetUsername}',${curLevel},${curRep})" style="width:100%;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:10px;border-radius:10px;cursor:pointer;font-family:inherit;font-size:12px;">📋 Скопировать профиль</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Вкладка: Все медали -->
+                    <div id="devTab_medals" style="display:none;">
+                        <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">Обычные медали выдаются автоматически за уровень. DEV медали — вручную через вкладку 🏅 Медаль.</div>
+                        <div style="font-size:12px;font-weight:700;color:#f9ca24;margin-bottom:8px;">👑 DEV медали</div>
+                        <div style="display:grid;gap:6px;margin-bottom:14px;">
+                            ${DEV_MEDALS.map(m => `
+                            <div style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;background:var(--surface2);border:1px solid ${curMedal===m.id?'var(--pink)':'var(--border)'};">
+                                <span class="medal-badge ${m.css}" style="font-size:12px;padding:4px 10px;white-space:nowrap;">${m.label}</span>
+                                <div style="flex:1;">
+                                    <div style="font-size:12px;font-weight:600;">${m.desc}</div>
+                                    <div style="font-size:10px;color:#f9ca24;">Выдаётся DEV вручную</div>
+                                </div>
+                                ${curMedal===m.id ? '<span style="font-size:10px;color:var(--pink);font-weight:700;">✓ Активна</span>' : ''}
+                            </div>`).join('')}
+                        </div>
+                        <div style="font-size:12px;font-weight:700;color:var(--blue);margin-bottom:8px;">🏅 Медали за уровень</div>
+                        <div style="display:grid;gap:6px;">
+                            ${[
+                                {lvl:1,  css:'medal-newbie',  label:'⚪ Новичок',    desc:'Первый шаг в Niji'},
+                                {lvl:2,  css:'medal-genin',   label:'🌿 Генин',      desc:'LVL 2+'},
+                                {lvl:3,  css:'medal-chunin',  label:'💧 Чунин',      desc:'LVL 3+'},
+                                {lvl:4,  css:'medal-spec',    label:'🌊 Спец',       desc:'LVL 4+'},
+                                {lvl:5,  css:'medal-jonin',   label:'⚡ Джонин',     desc:'LVL 5+'},
+                                {lvl:6,  css:'medal-master',  label:'🔥 Мастер',     desc:'LVL 6+'},
+                                {lvl:7,  css:'medal-elite',   label:'💎 Элита',      desc:'LVL 7+'},
+                                {lvl:8,  css:'medal-anbu',    label:'🩸 АНБУ',       desc:'LVL 8+'},
+                                {lvl:10, css:'medal-kage',    label:'🏯 Каге',       desc:'LVL 10+'},
+                                {lvl:12, css:'medal-hokage',  label:'🌀 Хокаге',     desc:'LVL 12+'},
+                                {lvl:15, css:'medal-legend',  label:'🌟 Легенда',    desc:'LVL 15+'},
+                                {lvl:20, css:'medal-god',     label:'🔱 Бог',        desc:'LVL 20+'},
+                            ].map(m => `
+                            <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;background:var(--surface2);border:1px solid ${(curLevel>=m.lvl&&!curMedal)?'var(--blue)':'var(--border)'};">
+                                <span class="medal-badge ${m.css}" style="font-size:12px;padding:4px 10px;white-space:nowrap;">${m.label}</span>
+                                <div style="flex:1;">
+                                    <div style="font-size:11px;color:var(--text2);">${m.desc}</div>
+                                </div>
+                                ${curLevel>=m.lvl&&!curMedal ? '<span style="font-size:10px;color:var(--blue);font-weight:700;">✓ Активна</span>' : (curLevel<m.lvl ? `<span style="font-size:10px;color:var(--text2);">LVL ${m.lvl}</span>` : '')}
+                            </div>`).join('')}
+                        </div>
+                    </div>
+
+                    <!-- Вкладка: Сброс -->
+                    <div id="devTab_reset" style="display:none;">
+                        <div style="background:rgba(255,71,87,0.08);border:1px solid rgba(255,71,87,0.3);border-radius:12px;padding:14px;margin-bottom:14px;">
+                            <div style="font-size:13px;font-weight:700;color:#ff4757;margin-bottom:4px;">⚠️ Зона сброса</div>
+                            <div style="font-size:11px;color:var(--text2);">Отдельные сбросы применяются мгновенно. Полный сброс вернёт аккаунт к начальному состоянию.</div>
+                        </div>
+                        <div style="display:grid;gap:10px;">
+                            <div style="background:var(--surface2);border-radius:12px;padding:14px;">
+                                <div style="font-size:12px;font-weight:700;margin-bottom:10px;">🖼️ Сброс рамки аватара</div>
+                                <div style="font-size:11px;color:var(--text2);margin-bottom:8px;">Текущая: <strong style="color:var(--pink);">${curFrame ? (AVATAR_FRAMES.find(f=>f.id===curFrame)?.label||curFrame) : 'нет'}</strong></div>
+                                <button onclick="devGiveFrame('${targetLogin}','')" style="width:100%;background:var(--surface);border:1px solid #ff6b9d;color:#ff6b9d;padding:10px;border-radius:10px;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;">🗑️ Снять рамку</button>
+                            </div>
+                            <div style="background:var(--surface2);border-radius:12px;padding:14px;">
+                                <div style="font-size:12px;font-weight:700;margin-bottom:10px;">🏅 Сброс DEV медали</div>
+                                <div style="font-size:11px;color:var(--text2);margin-bottom:8px;">Текущая: <strong style="color:#f9ca24;">${curMedal ? (DEV_MEDALS.find(m=>m.id===curMedal)?.label||curMedal) : 'нет'}</strong></div>
+                                <button onclick="devGiveMedal('${targetLogin}','')" style="width:100%;background:var(--surface);border:1px solid #f9ca24;color:#f9ca24;padding:10px;border-radius:10px;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;">🗑️ Снять медаль</button>
+                            </div>
+                            <div style="background:var(--surface2);border-radius:12px;padding:14px;">
+                                <div style="font-size:12px;font-weight:700;margin-bottom:10px;">⚡ Сброс уровня и репутации</div>
+                                <div style="font-size:11px;color:var(--text2);margin-bottom:8px;">Уровень: <strong style="color:#f9ca24;">${curLevel}</strong> · Репутация: <strong style="color:#ff6b9d;">${curRep}</strong></div>
+                                <div style="display:flex;gap:8px;">
+                                    <button onclick="devResetLevel('${targetLogin}')" style="flex:1;background:var(--surface);border:1px solid #f9ca24;color:#f9ca24;padding:10px;border-radius:10px;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;">↩️ LVL → 1</button>
+                                    <button onclick="devResetRep('${targetLogin}')" style="flex:1;background:var(--surface);border:1px solid #ff6b9d;color:#ff6b9d;padding:10px;border-radius:10px;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;">↩️ Репут → 0</button>
+                                </div>
+                            </div>
+                            <div style="background:var(--surface2);border-radius:12px;padding:14px;">
+                                <div style="font-size:12px;font-weight:700;margin-bottom:10px;">💎 Сброс верификации</div>
+                                <div style="font-size:11px;color:var(--text2);margin-bottom:8px;">Статус: <strong style="color:${isVerified?'#4dc9f6':'var(--text2)'};">${isVerified?'💎 Верифицирован':'не верифицирован'}</strong></div>
+                                <button onclick="devSetVerify('${targetLogin}',false)" style="width:100%;background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:10px;border-radius:10px;cursor:pointer;font-family:inherit;font-size:12px;">❌ Снять верификацию</button>
+                            </div>
+                            <div style="background:#1a0000;border:2px solid #ff4757;border-radius:12px;padding:14px;">
+                                <div style="font-size:12px;font-weight:700;color:#ff4757;margin-bottom:6px;">💥 Полный сброс аккаунта</div>
+                                <div style="font-size:11px;color:var(--text2);margin-bottom:10px;">Сбросит: уровень → 1, репутация → 0, рамка → нет, медаль → нет, верификация → снята</div>
+                                <button onclick="devFullReset('${targetLogin}','${targetUsername}')" style="width:100%;background:#ff4757;color:#fff;border:none;padding:11px;border-radius:10px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:800;">💥 ПОЛНЫЙ СБРОС</button>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>`;
+            document.body.insertAdjacentHTML('beforeend', html);
+
+            // Загружаем последних юзеров если на вкладке статистики
+            loadRecentUsers();
+        }
+
+        async function loadRecentUsers() {
+            const el = document.getElementById('devRecentUsers');
+            if (!el) return;
+            const { data } = await SB.from('users').select('username, login, level, created_at').order('created_at', { ascending: false }).limit(5);
+            if (!data || !data.length) { el.textContent = 'Нет данных'; return; }
+            el.innerHTML = data.map(u => `
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);">
+                    <span style="cursor:pointer;color:var(--blue);" onclick="document.getElementById('devFrameModal').remove();goProfile('${u.login}')">${u.username}</span>
+                    <span style="color:#f9ca24;font-size:11px;">LVL ${u.level||1}</span>
+                </div>`).join('');
+        }
+
+        function switchDevTab(tab) {
+            const tabColors = { boost:'#f9ca24', stats:'#2ed573', tools:'#a29bfe', reset:'#ff4757', medals:'#4dc9f6', medal:'var(--pink)', frame:'var(--pink)' };
+            const darkText  = new Set(['boost','stats']);
+            ['frame','medal','medals','boost','stats','tools','reset'].forEach(t => {
+                const el = document.getElementById('devTab_'+t);
+                const btn = document.getElementById('devTab_'+t+'_btn');
+                if (!el || !btn) return;
+                const active = t === tab;
+                el.style.display = active ? '' : 'none';
+                if (active) {
+                    btn.style.background = tabColors[t] || 'var(--pink)';
+                    btn.style.color = darkText.has(t) ? '#000' : '#fff';
+                    btn.style.border = 'none';
+                } else {
+                    btn.style.background = 'var(--surface2)';
+                    btn.style.color = 'var(--text2)';
+                    btn.style.border = '1px solid var(--border)';
+                }
+            });
+            if (tab === 'stats') loadRecentUsers();
+        }
+
+        async function devSetLevel(targetLogin) {
+            if (!currentUser || !DEVS.includes(currentUser.login.toLowerCase())) return;
+            const lvl = parseInt(document.getElementById('devBoostLvl')?.value) || 1;
+            if (lvl < 1 || lvl > 99) { toast('Уровень от 1 до 99', true); return; }
+            const { error } = await SB.from('users').update({ level: lvl }).eq('login', targetLogin);
+            if (error) { toast('Ошибка: ' + error.message, true); return; }
+            await SB.from('notifications').insert([{ user_login: targetLogin, type: 'like', text: `⚡ DEV установил тебе LVL ${lvl}! Крути! 🎉`, from_login: currentUser.login, is_read: false }]);
+            toast(`⚡ LVL ${lvl} выдан!`);
+            document.getElementById('devFrameModal')?.remove();
+            await renderProfile();
+        }
+
+        async function devSetRep(targetLogin) {
+            if (!currentUser || !DEVS.includes(currentUser.login.toLowerCase())) return;
+            const rep = parseInt(document.getElementById('devBoostRep')?.value) || 0;
+            const { error } = await SB.from('users').update({ reputation: rep }).eq('login', targetLogin);
+            if (error) { toast('Ошибка: ' + error.message, true); return; }
+            toast(`💖 Репутация ${rep} выдана!`);
+            document.getElementById('devFrameModal')?.remove();
+            await renderProfile();
+        }
+
+        async function devSendNotif(targetLogin) {
+            if (!currentUser || !DEVS.includes(currentUser.login.toLowerCase())) return;
+            const text = document.getElementById('devNotifText')?.value?.trim();
+            if (!text) { toast('Введи текст', true); return; }
+            await SB.from('notifications').insert([{ user_login: targetLogin, type: 'like', text: `📨 Сообщение от DEV: ${text}`, from_login: currentUser.login, is_read: false }]);
+            toast('✅ Сообщение отправлено!');
+            document.getElementById('devNotifText').value = '';
+        }
+
+        async function devSendAnnounce() {
+            if (!currentUser || !DEVS.includes(currentUser.login.toLowerCase())) return;
+            const text = document.getElementById('devAnnounceText')?.value?.trim();
+            if (!text) { toast('Введи текст объявления', true); return; }
+            const { data: users } = await SB.from('users').select('login');
+            if (!users || !users.length) { toast('Нет пользователей', true); return; }
+            const notifs = users.map(u => ({ user_login: u.login, type: 'like', text: `📣 Объявление Niji: ${text}`, from_login: currentUser.login, is_read: false }));
+            // Вставляем батчами по 50
+            for (let i = 0; i < notifs.length; i += 50) {
+                await SB.from('notifications').insert(notifs.slice(i, i + 50));
+            }
+            toast(`📣 Отправлено ${users.length} пользователям!`);
+            document.getElementById('devAnnounceText').value = '';
+        }
+
+        async function devSetVerify(targetLogin, val) {
+            if (!currentUser || !DEVS.includes(currentUser.login.toLowerCase())) return;
+            const { error } = await SB.from('users').update({ is_verified: val }).eq('login', targetLogin);
+            if (error) { toast('Ошибка: ' + error.message, true); return; }
+            if (val) await SB.from('notifications').insert([{ user_login: targetLogin, type: 'like', text: `💎 Тебе выдана верификация! Теперь у тебя есть значок 💎`, from_login: currentUser.login, is_read: false }]);
+            toast(val ? '💎 Верификация выдана!' : 'Верификация снята');
+            document.getElementById('devFrameModal')?.remove();
+            await renderProfile();
+        }
+
+        async function devUnban(targetLogin) {
+            if (!currentUser || !DEVS.includes(currentUser.login.toLowerCase())) return;
+            const { error } = await SB.from('users').update({ is_banned: false, ban_reason: null }).eq('login', targetLogin);
+            if (error) { toast('Ошибка', true); return; }
+            toast('✅ Пользователь разбанен');
+            document.getElementById('devFrameModal')?.remove();
+            await renderProfile();
+        }
+
+        async function devClearPosts(targetLogin, targetUsername) {
+            if (!currentUser || !DEVS.includes(currentUser.login.toLowerCase())) return;
+            if (!confirm(`Удалить ВСЕ посты ${targetUsername}? Это необратимо!`)) return;
+            const { error } = await SB.from('posts').delete().eq('user_login', targetLogin);
+            if (error) { toast('Ошибка: ' + error.message, true); return; }
+            toast(`🗑️ Все посты ${targetUsername} удалены`);
+            document.getElementById('devFrameModal')?.remove();
+            await renderFeed();
+        }
+
+        function devCopyInfo(login, username, level, rep) {
+            const text = `Логин: ${login}\nИмя: ${username}\nLVL: ${level}\nРепутация: ${rep}`;
+            navigator.clipboard?.writeText(text).then(() => toast('📋 Скопировано!')).catch(() => toast('Не удалось скопировать', true));
+        }
+
+        // ══════════════════════════════════════════════
+        // РАМКИ ДЛЯ ФОТО (аниме-персонажи пиксель арт)
+        // ══════════════════════════════════════════════
+        const PHOTO_FRAMES = [
+            { id: 'kimetsu',  label: '🗡️ Клинок',    desc: 'Kimetsu no Yaiba',   css: 'pf-kimetsu'  },
+            { id: 'nezuko',   label: '🌸 Незуко',     desc: 'Nezuko & Tanjiro',   css: 'pf-nezuko'   },
+            { id: 'ghoul',    label: '👁️ Гуль',       desc: 'Tokyo Ghoul',        css: 'pf-ghoul'    },
+            { id: 'onepiece', label: '☠️ Пираты',     desc: 'One Piece',          css: 'pf-onepiece' },
+            { id: 'naruto',   label: '🌀 Наруто',     desc: 'Naruto',             css: 'pf-naruto'   },
+            { id: 'aot',      label: '⚔️ Атака',      desc: 'Attack on Titan',    css: 'pf-aot'      },
+            { id: 'dragon',   label: '🐉 Дракон',     desc: 'Золотой дракон',     css: 'pf-dragon'   },
+            { id: 'dbz',      label: '💥 Dragon Ball', desc: 'Dragon Ball Z',      css: 'pf-dbz'      },
+            { id: 'mha',      label: '🦸 Геройство',  desc: 'My Hero Academia',   css: 'pf-mha'      },
+            { id: 'jjk',      label: '🔮 Магия',      desc: 'Jujutsu Kaisen',     css: 'pf-jjk'      },
+        ];
+
+        // Пиксель-арт персонажи (16×24px, масштаб ×4 = 64×96)
+        const CHAR_SVG = {
+            kimetsu_L:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 24" width="60" height="90" image-rendering="pixelated"><rect x="6" y="1" width="4" height="4" fill="#f4c89a"/><rect x="5" y="0" width="6" height="2" fill="#1a1a1a"/><rect x="5" y="2" width="1" height="2" fill="#1a1a1a"/><rect x="10" y="2" width="1" height="2" fill="#1a1a1a"/><rect x="7" y="3" width="1" height="1" fill="#c0392b"/><rect x="6" y="5" width="4" height="1" fill="#2ecc71"/><rect x="4" y="6" width="8" height="5" fill="#1a6b2e"/><rect x="4" y="6" width="2" height="5" fill="#2ecc71"/><rect x="10" y="6" width="2" height="5" fill="#2ecc71"/><rect x="2" y="6" width="2" height="4" fill="#1a6b2e"/><rect x="12" y="6" width="2" height="4" fill="#1a6b2e"/><rect x="0" y="8" width="3" height="1" fill="#c0a070"/><rect x="0" y="7" width="1" height="6" fill="#c8d8ff"/><rect x="6" y="11" width="4" height="6" fill="#1a1a3a"/><rect x="5" y="17" width="3" height="4" fill="#111"/><rect x="8" y="17" width="3" height="4" fill="#111"/><rect x="5" y="20" width="3" height="1" fill="#2a2a2a"/><rect x="8" y="20" width="3" height="1" fill="#2a2a2a"/></svg>`,
+            kimetsu_R:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 24" width="60" height="90" image-rendering="pixelated"><rect x="6" y="1" width="4" height="4" fill="#f4c89a"/><rect x="5" y="0" width="6" height="2" fill="#4a2080"/><rect x="5" y="2" width="1" height="3" fill="#4a2080"/><rect x="10" y="2" width="1" height="3" fill="#4a2080"/><rect x="6" y="4" width="4" height="1" fill="#8b4513"/><rect x="6" y="5" width="4" height="1" fill="#f4c89a"/><rect x="4" y="6" width="8" height="5" fill="#c0392b"/><rect x="4" y="6" width="2" height="5" fill="#f0b0d0"/><rect x="10" y="6" width="2" height="5" fill="#f0b0d0"/><rect x="2" y="6" width="2" height="4" fill="#c0392b"/><rect x="12" y="6" width="2" height="4" fill="#c0392b"/><rect x="6" y="11" width="4" height="6" fill="#c0392b"/><rect x="5" y="17" width="3" height="4" fill="#111"/><rect x="8" y="17" width="3" height="4" fill="#111"/></svg>`,
+            ghoul_L:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 24" width="60" height="90" image-rendering="pixelated"><rect x="6" y="1" width="4" height="3" fill="#f0e0d0"/><rect x="5" y="0" width="6" height="2" fill="#d0d0d0"/><rect x="4" y="1" width="2" height="3" fill="#d0d0d0"/><rect x="10" y="1" width="2" height="3" fill="#d0d0d0"/><rect x="6" y="3" width="4" height="2" fill="#111"/><rect x="6" y="4" width="2" height="1" fill="#cc0000"/><rect x="6" y="5" width="4" height="1" fill="#111"/><rect x="4" y="6" width="8" height="5" fill="#111"/><rect x="2" y="6" width="2" height="4" fill="#111"/><rect x="12" y="6" width="2" height="4" fill="#111"/><rect x="0" y="7" width="3" height="2" fill="#cc0000"/><rect x="0" y="9" width="2" height="4" fill="#cc0000"/><rect x="6" y="11" width="4" height="7" fill="#111"/><rect x="5" y="18" width="3" height="3" fill="#0a0a0a"/><rect x="8" y="18" width="3" height="3" fill="#0a0a0a"/></svg>`,
+            ghoul_R:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 24" width="60" height="90" image-rendering="pixelated"><rect x="6" y="1" width="4" height="3" fill="#f0e0d0"/><rect x="5" y="0" width="6" height="2" fill="#d0d0d0"/><rect x="4" y="1" width="2" height="3" fill="#d0d0d0"/><rect x="10" y="1" width="2" height="3" fill="#d0d0d0"/><rect x="6" y="3" width="4" height="2" fill="#111"/><rect x="8" y="4" width="2" height="1" fill="#cc0000"/><rect x="6" y="5" width="4" height="1" fill="#111"/><rect x="4" y="6" width="8" height="5" fill="#111"/><rect x="2" y="6" width="2" height="4" fill="#111"/><rect x="12" y="6" width="2" height="4" fill="#111"/><rect x="13" y="7" width="3" height="2" fill="#cc0000"/><rect x="14" y="9" width="2" height="4" fill="#cc0000"/><rect x="6" y="11" width="4" height="7" fill="#111"/><rect x="5" y="18" width="3" height="3" fill="#0a0a0a"/><rect x="8" y="18" width="3" height="3" fill="#0a0a0a"/></svg>`,
+            onepiece_L:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 24" width="60" height="90" image-rendering="pixelated"><rect x="3" y="0" width="10" height="2" fill="#c8a000"/><rect x="5" y="2" width="6" height="2" fill="#f9ca24"/><rect x="6" y="3" width="4" height="3" fill="#f4c89a"/><rect x="7" y="5" width="1" height="1" fill="#cc0000"/><rect x="6" y="6" width="4" height="1" fill="#f4c89a"/><rect x="4" y="7" width="8" height="4" fill="#cc0000"/><rect x="2" y="7" width="2" height="4" fill="#f4c89a"/><rect x="12" y="7" width="2" height="4" fill="#f4c89a"/><rect x="0" y="8" width="3" height="2" fill="#f4c89a"/><rect x="6" y="11" width="4" height="5" fill="#1a1a5e"/><rect x="5" y="16" width="3" height="5" fill="#8b4513"/><rect x="8" y="16" width="3" height="5" fill="#8b4513"/></svg>`,
+            onepiece_R:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 24" width="60" height="90" image-rendering="pixelated"><rect x="6" y="1" width="4" height="4" fill="#f4c89a"/><rect x="5" y="0" width="6" height="2" fill="#2a7a2a"/><rect x="4" y="1" width="2" height="3" fill="#2a7a2a"/><rect x="10" y="1" width="2" height="3" fill="#2a7a2a"/><rect x="6" y="5" width="4" height="1" fill="#f4c89a"/><rect x="4" y="6" width="8" height="5" fill="#2a7a2a"/><rect x="2" y="6" width="2" height="4" fill="#2a7a2a"/><rect x="12" y="6" width="2" height="4" fill="#2a7a2a"/><rect x="13" y="4" width="1" height="9" fill="#d0d0d0"/><rect x="14" y="3" width="1" height="10" fill="#d0d0d0"/><rect x="6" y="11" width="4" height="7" fill="#111"/><rect x="5" y="18" width="3" height="3" fill="#222"/><rect x="8" y="18" width="3" height="3" fill="#222"/></svg>`,
+            naruto_L:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 24" width="60" height="90" image-rendering="pixelated"><rect x="6" y="1" width="4" height="4" fill="#f4c89a"/><rect x="5" y="0" width="6" height="2" fill="#f9ca24"/><rect x="4" y="0" width="2" height="3" fill="#f9ca24"/><rect x="10" y="0" width="2" height="3" fill="#f9ca24"/><rect x="6" y="1" width="1" height="1" fill="#f0c090"/><rect x="9" y="1" width="1" height="1" fill="#f0c090"/><rect x="6" y="5" width="4" height="1" fill="#f4c89a"/><rect x="4" y="6" width="8" height="4" fill="#e07b00"/><rect x="2" y="6" width="2" height="4" fill="#e07b00"/><rect x="12" y="6" width="2" height="4" fill="#e07b00"/><rect x="0" y="7" width="3" height="3" fill="#4dc9f6"/><rect x="0" y="6" width="2" height="1" fill="#7ad0ff"/><rect x="6" y="10" width="4" height="8" fill="#e07b00"/><rect x="5" y="18" width="3" height="3" fill="#111"/><rect x="8" y="18" width="3" height="3" fill="#111"/></svg>`,
+            naruto_R:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 24" width="60" height="90" image-rendering="pixelated"><rect x="6" y="1" width="4" height="4" fill="#f4c89a"/><rect x="5" y="0" width="6" height="2" fill="#f9ca24"/><rect x="4" y="0" width="2" height="3" fill="#f9ca24"/><rect x="10" y="0" width="2" height="3" fill="#f9ca24"/><rect x="6" y="5" width="4" height="1" fill="#f4c89a"/><rect x="4" y="6" width="8" height="4" fill="#e07b00"/><rect x="2" y="6" width="2" height="4" fill="#e07b00"/><rect x="12" y="6" width="2" height="4" fill="#e07b00"/><rect x="13" y="6" width="3" height="1" fill="#c8c8c8"/><rect x="14" y="5" width="1" height="4" fill="#c8c8c8"/><rect x="13" y="9" width="2" height="1" fill="#cc0000"/><rect x="6" y="10" width="4" height="8" fill="#e07b00"/><rect x="5" y="18" width="3" height="3" fill="#111"/><rect x="8" y="18" width="3" height="3" fill="#111"/></svg>`,
+            aot_L:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 24" width="60" height="90" image-rendering="pixelated"><rect x="6" y="1" width="4" height="4" fill="#f0d8b8"/><rect x="5" y="0" width="6" height="2" fill="#3a2808"/><rect x="5" y="2" width="1" height="3" fill="#3a2808"/><rect x="10" y="2" width="1" height="3" fill="#3a2808"/><rect x="6" y="5" width="4" height="1" fill="#f0d8b8"/><rect x="4" y="6" width="8" height="5" fill="#4a5568"/><rect x="2" y="6" width="2" height="4" fill="#4a5568"/><rect x="12" y="6" width="2" height="4" fill="#4a5568"/><rect x="5" y="6" width="1" height="5" fill="#8b6914"/><rect x="10" y="6" width="1" height="5" fill="#8b6914"/><rect x="0" y="7" width="1" height="1" fill="#c8c8c8"/><rect x="0" y="6" width="2" height="1" fill="#c8c8c8"/><rect x="0" y="8" width="1" height="5" fill="#c8c8c8"/><rect x="6" y="11" width="4" height="7" fill="#3a4050"/><rect x="5" y="18" width="3" height="3" fill="#1a1a1a"/><rect x="8" y="18" width="3" height="3" fill="#1a1a1a"/></svg>`,
+            aot_R:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 24" width="60" height="90" image-rendering="pixelated"><rect x="6" y="1" width="4" height="4" fill="#f0d8b8"/><rect x="5" y="0" width="6" height="2" fill="#111"/><rect x="5" y="2" width="1" height="3" fill="#111"/><rect x="10" y="2" width="1" height="3" fill="#111"/><rect x="6" y="5" width="4" height="1" fill="#f0d8b8"/><rect x="4" y="6" width="8" height="5" fill="#4a5568"/><rect x="2" y="6" width="2" height="4" fill="#4a5568"/><rect x="12" y="6" width="2" height="4" fill="#4a5568"/><rect x="5" y="6" width="1" height="5" fill="#8b6914"/><rect x="10" y="6" width="1" height="5" fill="#8b6914"/><rect x="15" y="7" width="1" height="1" fill="#c8c8c8"/><rect x="14" y="6" width="2" height="1" fill="#c8c8c8"/><rect x="15" y="8" width="1" height="5" fill="#c8c8c8"/><rect x="6" y="11" width="4" height="7" fill="#3a4050"/><rect x="5" y="18" width="3" height="3" fill="#1a1a1a"/><rect x="8" y="18" width="3" height="3" fill="#1a1a1a"/></svg>`,
+            dragon_L:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 24" width="60" height="90" image-rendering="pixelated"><rect x="8" y="0" width="5" height="3" fill="#c8a000"/><rect x="10" y="0" width="2" height="1" fill="#f9ca24"/><rect x="12" y="0" width="1" height="2" fill="#f9ca24"/><rect x="7" y="2" width="2" height="2" fill="#c8a000"/><rect x="7" y="3" width="1" height="1" fill="#cc0000"/><rect x="8" y="3" width="1" height="1" fill="#fff"/><rect x="5" y="3" width="4" height="4" fill="#c8a000"/><rect x="3" y="5" width="4" height="5" fill="#c8a000"/><rect x="9" y="5" width="4" height="5" fill="#c8a000"/><rect x="2" y="6" width="2" height="4" fill="#e0b800"/><rect x="5" y="7" width="7" height="6" fill="#c8a000"/><rect x="6" y="8" width="1" height="1" fill="#e0b800"/><rect x="8" y="9" width="1" height="1" fill="#e0b800"/><rect x="10" y="8" width="1" height="1" fill="#e0b800"/><rect x="6" y="13" width="5" height="4" fill="#c8a000"/><rect x="7" y="17" width="4" height="3" fill="#c8a000"/><rect x="8" y="20" width="3" height="2" fill="#c8a000"/></svg>`,
+            dragon_R:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 24" width="60" height="90" image-rendering="pixelated"><rect x="3" y="0" width="5" height="3" fill="#c8a000"/><rect x="4" y="0" width="2" height="1" fill="#f9ca24"/><rect x="3" y="0" width="1" height="2" fill="#f9ca24"/><rect x="7" y="2" width="2" height="2" fill="#c8a000"/><rect x="8" y="3" width="1" height="1" fill="#cc0000"/><rect x="7" y="3" width="1" height="1" fill="#fff"/><rect x="7" y="3" width="4" height="4" fill="#c8a000"/><rect x="9" y="5" width="4" height="5" fill="#c8a000"/><rect x="3" y="5" width="4" height="5" fill="#c8a000"/><rect x="10" y="6" width="2" height="4" fill="#e0b800"/><rect x="4" y="7" width="7" height="6" fill="#c8a000"/><rect x="5" y="8" width="1" height="1" fill="#e0b800"/><rect x="7" y="9" width="1" height="1" fill="#e0b800"/><rect x="9" y="8" width="1" height="1" fill="#e0b800"/><rect x="5" y="13" width="5" height="4" fill="#c8a000"/><rect x="5" y="17" width="4" height="3" fill="#c8a000"/><rect x="5" y="20" width="3" height="2" fill="#c8a000"/></svg>`,
+            // Гоку — Dragon Ball Z (левый: Гоку в стойке, правый: SSJ с аурой)
+            dbz_L:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 24" width="60" height="90" image-rendering="pixelated"><rect x="6" y="1" width="4" height="4" fill="#f4c89a"/><rect x="5" y="0" width="6" height="2" fill="#111"/><rect x="4" y="0" width="2" height="4" fill="#111"/><rect x="10" y="0" width="2" height="4" fill="#111"/><rect x="5" y="4" width="1" height="2" fill="#111"/><rect x="10" y="4" width="1" height="2" fill="#111"/><rect x="6" y="5" width="4" height="1" fill="#f4c89a"/><rect x="4" y="6" width="8" height="5" fill="#e07b00"/><rect x="2" y="6" width="2" height="4" fill="#e07b00"/><rect x="12" y="6" width="2" height="4" fill="#e07b00"/><rect x="5" y="6" width="2" height="2" fill="#fff"/><rect x="9" y="6" width="2" height="2" fill="#fff"/><rect x="6" y="11" width="4" height="6" fill="#1a1a6e"/><rect x="5" y="17" width="3" height="4" fill="#111"/><rect x="8" y="17" width="3" height="4" fill="#111"/><rect x="5" y="20" width="2" height="1" fill="#333"/><rect x="9" y="20" width="2" height="1" fill="#333"/></svg>`,
+            dbz_R:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 24" width="60" height="90" image-rendering="pixelated"><rect x="6" y="1" width="4" height="4" fill="#f4c89a"/><rect x="5" y="0" width="6" height="2" fill="#f9ca24"/><rect x="4" y="0" width="2" height="5" fill="#f9ca24"/><rect x="10" y="0" width="2" height="5" fill="#f9ca24"/><rect x="3" y="1" width="2" height="2" fill="#fff8a0"/><rect x="11" y="1" width="2" height="2" fill="#fff8a0"/><rect x="6" y="5" width="4" height="1" fill="#f4c89a"/><rect x="4" y="6" width="8" height="5" fill="#e07b00"/><rect x="2" y="6" width="2" height="4" fill="#fff8a0"/><rect x="12" y="6" width="2" height="4" fill="#fff8a0"/><rect x="0" y="5" width="2" height="6" fill="#fff8a0"/><rect x="14" y="5" width="2" height="6" fill="#fff8a0"/><rect x="6" y="11" width="4" height="6" fill="#1a1a6e"/><rect x="5" y="17" width="3" height="4" fill="#111"/><rect x="8" y="17" width="3" height="4" fill="#111"/></svg>`,
+            // Деку (лев) + All Might (прав) — MHA
+            mha_L:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 24" width="60" height="90" image-rendering="pixelated"><rect x="6" y="1" width="4" height="4" fill="#f4c89a"/><rect x="5" y="0" width="6" height="2" fill="#111"/><rect x="4" y="0" width="2" height="3" fill="#111"/><rect x="10" y="0" width="2" height="3" fill="#111"/><rect x="6" y="0" width="1" height="2" fill="#2d2d2d"/><rect x="9" y="0" width="1" height="2" fill="#2d2d2d"/><rect x="6" y="5" width="4" height="1" fill="#f4c89a"/><rect x="4" y="6" width="8" height="5" fill="#1e3a8a"/><rect x="2" y="6" width="2" height="4" fill="#1e3a8a"/><rect x="12" y="6" width="2" height="4" fill="#1e3a8a"/><rect x="4" y="6" width="1" height="5" fill="#a0c8ff"/><rect x="11" y="6" width="1" height="5" fill="#a0c8ff"/><rect x="0" y="7" width="2" height="3" fill="#a0c8ff"/><rect x="6" y="11" width="4" height="6" fill="#1e3a8a"/><rect x="5" y="17" width="3" height="4" fill="#111"/><rect x="8" y="17" width="3" height="4" fill="#111"/></svg>`,
+            mha_R:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 24" width="60" height="90" image-rendering="pixelated"><rect x="6" y="1" width="4" height="4" fill="#f4c89a"/><rect x="5" y="0" width="6" height="2" fill="#f9ca24"/><rect x="4" y="0" width="2" height="3" fill="#f9ca24"/><rect x="10" y="0" width="2" height="3" fill="#f9ca24"/><rect x="3" y="0" width="2" height="2" fill="#f9ca24"/><rect x="11" y="0" width="2" height="2" fill="#f9ca24"/><rect x="6" y="5" width="4" height="1" fill="#f4c89a"/><rect x="4" y="6" width="8" height="5" fill="#1565c0"/><rect x="2" y="6" width="2" height="4" fill="#1565c0"/><rect x="12" y="6" width="2" height="4" fill="#1565c0"/><rect x="4" y="6" width="2" height="2" fill="#fff"/><rect x="10" y="6" width="2" height="2" fill="#fff"/><rect x="5" y="7" width="1" height="1" fill="#e00"/><rect x="10" y="7" width="1" height="1" fill="#e00"/><rect x="6" y="11" width="4" height="6" fill="#1565c0"/><rect x="5" y="17" width="3" height="4" fill="#111"/><rect x="8" y="17" width="3" height="4" fill="#111"/></svg>`,
+            // Юдзи (лев) + Годжо (прав) — JJK
+            jjk_L:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 24" width="60" height="90" image-rendering="pixelated"><rect x="6" y="1" width="4" height="4" fill="#f4c89a"/><rect x="5" y="0" width="6" height="2" fill="#c0a000"/><rect x="4" y="0" width="2" height="3" fill="#c0a000"/><rect x="10" y="0" width="2" height="3" fill="#c0a000"/><rect x="6" y="2" width="1" height="1" fill="#e8b800"/><rect x="9" y="2" width="1" height="1" fill="#e8b800"/><rect x="6" y="5" width="4" height="1" fill="#f4c89a"/><rect x="4" y="6" width="8" height="5" fill="#1a1a1a"/><rect x="2" y="6" width="2" height="4" fill="#1a1a1a"/><rect x="12" y="6" width="2" height="4" fill="#1a1a1a"/><rect x="4" y="6" width="2" height="2" fill="#ff6b6b"/><rect x="0" y="7" width="2" height="3" fill="#111"/><rect x="6" y="11" width="4" height="6" fill="#111"/><rect x="5" y="17" width="3" height="4" fill="#0a0a0a"/><rect x="8" y="17" width="3" height="4" fill="#0a0a0a"/></svg>`,
+            jjk_R:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 24" width="60" height="90" image-rendering="pixelated"><rect x="6" y="1" width="4" height="4" fill="#f4c89a"/><rect x="5" y="0" width="6" height="2" fill="#f0f0f0"/><rect x="4" y="0" width="2" height="3" fill="#f0f0f0"/><rect x="10" y="0" width="2" height="3" fill="#f0f0f0"/><rect x="6" y="5" width="4" height="1" fill="#f4c89a"/><rect x="6" y="3" width="1" height="1" fill="#4dc9f6"/><rect x="9" y="3" width="1" height="1" fill="#4dc9f6"/><rect x="6" y="2" width="4" height="1" fill="#e0e0e0"/><rect x="4" y="6" width="8" height="5" fill="#1a0030"/><rect x="2" y="6" width="2" height="4" fill="#1a0030"/><rect x="12" y="6" width="2" height="4" fill="#1a0030"/><rect x="0" y="5" width="3" height="6" fill="#6c00c0"/><rect x="13" y="5" width="3" height="6" fill="#6c00c0"/><rect x="6" y="11" width="4" height="6" fill="#1a0030"/><rect x="5" y="17" width="3" height="4" fill="#0d001a"/><rect x="8" y="17" width="3" height="4" fill="#0d001a"/></svg>`,
+            // Незуко + Танджиро доп. рамка
+            nezuko_L:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 24" width="60" height="90" image-rendering="pixelated"><rect x="6" y="1" width="4" height="4" fill="#f4c89a"/><rect x="5" y="0" width="6" height="3" fill="#111"/><rect x="4" y="2" width="2" height="2" fill="#111"/><rect x="10" y="2" width="2" height="2" fill="#111"/><rect x="7" y="2" width="2" height="1" fill="#ff8c00"/><rect x="6" y="5" width="4" height="1" fill="#f4c89a"/><rect x="4" y="6" width="8" height="5" fill="#c0005a"/><rect x="2" y="6" width="2" height="4" fill="#c0005a"/><rect x="12" y="6" width="2" height="4" fill="#c0005a"/><rect x="4" y="6" width="2" height="5" fill="#fd79a8"/><rect x="10" y="6" width="2" height="5" fill="#fd79a8"/><rect x="6" y="7" width="4" height="1" fill="#f9ca24"/><rect x="6" y="11" width="4" height="7" fill="#c0005a"/><rect x="5" y="18" width="3" height="3" fill="#111"/><rect x="8" y="18" width="3" height="3" fill="#111"/></svg>`,
+            nezuko_R:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 24" width="60" height="90" image-rendering="pixelated"><rect x="6" y="1" width="4" height="4" fill="#f4c89a"/><rect x="5" y="0" width="6" height="2" fill="#1a6b2e"/><rect x="5" y="2" width="1" height="3" fill="#1a6b2e"/><rect x="10" y="2" width="1" height="3" fill="#1a6b2e"/><rect x="7" y="3" width="1" height="1" fill="#c0392b"/><rect x="6" y="5" width="4" height="1" fill="#2ecc71"/><rect x="4" y="6" width="8" height="5" fill="#1a6b2e"/><rect x="4" y="6" width="2" height="5" fill="#2ecc71"/><rect x="10" y="6" width="2" height="5" fill="#2ecc71"/><rect x="2" y="6" width="2" height="4" fill="#1a6b2e"/><rect x="12" y="6" width="2" height="4" fill="#1a6b2e"/><rect x="13" y="6" width="3" height="1" fill="#c8d8ff"/><rect x="14" y="5" width="1" height="4" fill="#c8d8ff"/><rect x="6" y="11" width="4" height="6" fill="#1a1a3a"/><rect x="5" y="17" width="3" height="4" fill="#111"/><rect x="8" y="17" width="3" height="4" fill="#111"/></svg>`,
+        };
+
+        function buildPhotoFrame(imageUrl, frameId) {
+            if (!frameId || frameId === 'none') {
+                return `<img src="${imageUrl}" class="post-image" alt="post image" onerror="this.style.display='none'">`;
+            }
+            const f = PHOTO_FRAMES.find(x => x.id === frameId);
+            if (!f) return `<img src="${imageUrl}" class="post-image" alt="post image" onerror="this.style.display='none'">`;
+            const charL = CHAR_SVG[`${frameId}_L`] || '';
+            const charR = CHAR_SVG[`${frameId}_R`] || '';
+            return `
+            <div class="photo-frame-wrap ${f.css}">
+                <div class="photo-frame-overlay">
+                    <div class="pf-corner pf-corner-tl"></div>
+                    <div class="pf-corner pf-corner-tr"></div>
+                    <div class="pf-corner pf-corner-bl"></div>
+                    <div class="pf-corner pf-corner-br"></div>
+                </div>
+                <img src="${imageUrl}" class="post-image" style="position:relative;z-index:1;margin:0;border-radius:0;" alt="post image" onerror="this.parentElement.style.display='none'">
+                <div class="pf-char-left">${charL}</div>
+                <div class="pf-char-right">${charR}</div>
+            </div>`;
+        }
+
+        async function devGiveFrame(targetLogin, frameId) {
+            if (!currentUser || !DEVS.includes(currentUser.login.toLowerCase())) return;
+            const { error } = await SB.from('users').update({ avatar_frame: frameId || null }).eq('login', targetLogin);
+            if (error) { toast('Ошибка! Добавь колонку avatar_frame в Supabase SQL Editor', true); return; }
+            document.getElementById('devFrameModal')?.remove();
+            // Уведомление пользователю
+            if (frameId) {
+                const f = getFrameDef(frameId);
+                await SB.from('notifications').insert([{
+                    user_login: targetLogin, type: 'like',
+                    text: `👑 DEV выдал тебе рамку "${f.label}"! Загляни в профиль ✨`,
+                    from_login: currentUser.login, is_read: false
+                }]);
+            }
+            toast(frameId ? `Рамка выдана пользователю!` : 'Рамка снята');
+            await renderProfile();
+        }
+
+        async function devGiveMedal(targetLogin, medalId) {
+            if (!currentUser || !DEVS.includes(currentUser.login.toLowerCase())) return;
+            const { error } = await SB.from('users').update({ dev_medal: medalId || null }).eq('login', targetLogin);
+            if (error) { toast('Ошибка! Выполни SQL: alter table users add column if not exists dev_medal text;', true); return; }
+            document.getElementById('devFrameModal')?.remove();
+            if (medalId) {
+                const m = DEV_MEDALS.find(x => x.id === medalId);
+                await SB.from('notifications').insert([{
+                    user_login: targetLogin, type: 'like',
+                    text: `🏅 DEV выдал тебе эксклюзивную медаль "${m?.label || medalId}"! Загляни в профиль ✨`,
+                    from_login: currentUser.login, is_read: false
+                }]);
+            }
+            toast(medalId ? `Медаль выдана!` : 'Медаль снята');
+            await renderProfile();
+        }
+
+        async function devResetLevel(targetLogin) {
+            if (!currentUser || !DEVS.includes(currentUser.login.toLowerCase())) return;
+            const { error } = await SB.from('users').update({ level: 1 }).eq('login', targetLogin);
+            if (error) { toast('Ошибка сброса уровня', true); return; }
+            document.getElementById('devFrameModal')?.remove();
+            toast('Уровень сброшен до 1');
+            await renderProfile();
+        }
+
+        async function devResetRep(targetLogin) {
+            if (!currentUser || !DEVS.includes(currentUser.login.toLowerCase())) return;
+            const { error } = await SB.from('users').update({ reputation: 0 }).eq('login', targetLogin);
+            if (error) { toast('Ошибка сброса репутации', true); return; }
+            document.getElementById('devFrameModal')?.remove();
+            toast('Репутация сброшена до 0');
+            await renderProfile();
+        }
+
+        async function devFullReset(targetLogin, targetUsername) {
+            if (!currentUser || !DEVS.includes(currentUser.login.toLowerCase())) return;
+            if (!confirm(`Полный сброс аккаунта ${targetUsername}?\n\nУровень → 1, репутация → 0, рамка → нет, медаль → нет, верификация → снята.\n\nЭто необратимо!`)) return;
+            const { error } = await SB.from('users').update({
+                level: 1,
+                reputation: 0,
+                avatar_frame: null,
+                dev_medal: null,
+                is_verified: false
+            }).eq('login', targetLogin);
+            if (error) { toast('Ошибка полного сброса', true); return; }
+            document.getElementById('devFrameModal')?.remove();
+            await SB.from('notifications').insert([{
+                user_login: targetLogin, type: 'like',
+                text: `⚠️ DEV произвёл полный сброс твоего аккаунта.`,
+                from_login: currentUser.login, is_read: false
+            }]);
+            toast(`Аккаунт ${targetUsername} полностью сброшен`);
+            await renderProfile();
+        }
+
+                let selectedAvatarEmoji = '';
         let selectedAvatarGradient = '';
         let avatarGalleryTab = 'emoji';
 
@@ -3132,13 +4036,11 @@ create table if not exists notifications (
         }
 
         // Хелпер — отрисовка аватара (эмодзи/градиент/картинка/буква)
-        function buildAvatarHtml(user, size = 34, fontSize = 14, border = false) {
+        function buildAvatarInner(user, size, fontSize, border) {
             const av = user.avatar_url;
             let style = `width:${size}px;height:${size}px;border-radius:50%;display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;`;
             if (border) style += 'border:2px solid var(--border);';
-
             if (!av) {
-                // Дефолтная буква
                 return `<div style="${style}background:${color(user.login)};color:#fff;font-weight:700;font-size:${fontSize}px;">${user.username[0].toUpperCase()}</div>`;
             }
             if (av.startsWith('data:avatar/svg+xml,')) {
@@ -3147,8 +4049,17 @@ create table if not exists notifications (
                     return `<div style="${style}background:${parsed.bg};color:#fff;font-size:${Math.round(size*0.55)}px;">${parsed.emoji}</div>`;
                 } catch { /* fallback */ }
             }
-            // Обычный URL
-            return `<div style="${style}background:${color(user.login)};"><img src="${esc(av)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.parentElement.innerHTML='<span style=\\'color:#fff;font-weight:700;font-size:${fontSize}px;\\'>${user.username[0].toUpperCase()}</span>'"></div>`;
+            return `<div style="${style}background:${color(user.login)};"><img src="${esc(av)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.parentElement.innerHTML='<span style=\'color:#fff;font-weight:700;font-size:${fontSize}px;\'>${user.username[0].toUpperCase()}</span>'"></div>`;
+        }
+
+        function buildAvatarHtml(user, size = 34, fontSize = 14, border = false) {
+            const frameId = user.avatar_frame;
+            const frameDef = frameId ? getFrameDef(frameId) : null;
+            const inner = buildAvatarInner(user, size, fontSize, border && !frameDef);
+            if (!frameDef) return inner;
+            const pad = Math.max(3, Math.round(size * 0.1));
+            const total = size + pad * 2;
+            return `<div class="avatar-frame-wrap" style="width:${total}px;height:${total}px;flex-shrink:0;"><div class="av-frame ${frameDef.css}" style="inset:-${pad}px;"></div><div style="position:relative;z-index:1;">${inner}</div></div>`;
         }
 
         // === Галерея обложек (только аниме) ===
@@ -3344,6 +4255,96 @@ create table if not exists notifications (
                 <div class="modal" style="max-width:460px; max-height:85vh; overflow-y:auto;">
                     <h2 style="margin-bottom:16px; text-align:center;">にじ Niji — Обновления</h2>
                     
+                    <!-- v2.8 -->
+                    <div style="background:var(--surface2); padding:16px; border-radius:12px; margin-bottom:14px; border-left:4px solid #c8a000;">
+                        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                            <strong style="color:#c8a000; font-size:15px;">v2.8</strong>
+                            <span style="font-size:11px; color:#888;">8 июня 2026</span>
+                        </div>
+                        <div style="font-size:13px; line-height:1.7;">
+                            <strong>🖼️ Аниме-рамки для фото в постах</strong><br>
+                            • 6 рамок с пиксель-арт персонажами по бокам<br>
+                            • 🗡️ Клинок — Танджиро + Незуко (Kimetsu no Yaiba)<br>
+                            • 👁️ Гуль — Канеки (Tokyo Ghoul)<br>
+                            • ☠️ Пираты — Луффи + Зоро (One Piece)<br>
+                            • 🌀 Наруто — Наруто с расэнганом<br>
+                            • ⚔️ Атака Титанов — Эрен + Леви<br>
+                            • 🐉 Дракон — золотые пиксель-драконы<br>
+                            • Выбор рамки появляется при добавлении фото
+                        </div>
+                    </div>
+
+                    <!-- v2.7 -->
+                    <div style="background:var(--surface2); padding:16px; border-radius:12px; margin-bottom:14px; border-left:4px solid #f9ca24;">
+                        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                            <strong style="color:#f9ca24; font-size:15px;">v2.7</strong>
+                            <span style="font-size:11px; color:#888;">8 июня 2026</span>
+                        </div>
+                        <div style="font-size:13px; line-height:1.7;">
+                            <strong>⚙️ Расширена DEV-панель (5 вкладок)</strong><br>
+                            • 🖼️ <strong>Рамка</strong> — выдать любую рамку<br>
+                            • 🏅 <strong>Медаль</strong> — DEV-медали<br>
+                            • ⚡ <strong>Буст</strong> — установить уровень / репутацию, отправить личное сообщение<br>
+                            • 📊 <strong>Статистика</strong> — онлайн, всего юзеров/постов, объявление всем, последние регистрации<br>
+                            • 🛠️ <strong>Прочее</strong> — верификация 💎, бан/разбан, очистка постов, копировать профиль
+                        </div>
+                    </div>
+
+                    <!-- v2.6 -->
+                    <div style="background:var(--surface2); padding:16px; border-radius:12px; margin-bottom:14px; border-left:4px solid #f9ca24;">
+                        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                            <strong style="color:#f9ca24; font-size:15px;">v2.6</strong>
+                            <span style="font-size:11px; color:#888;">8 июня 2026</span>
+                        </div>
+                        <div style="font-size:13px; line-height:1.6;">
+                            <strong>🏅 Расширены аниме-медали (12 уровней)</strong><br>
+                            • ⚪ Новичок · 🌿 Генин · 💧 Чунин · 🌊 Спец<br>
+                            • ⚡ Джонин · 🔥 Мастер · 💎 Элита · 🩸 АНБУ<br>
+                            • 🏯 Каге · 🌀 Хокаге · 🌟 Легенда · 🔱 Бог<br>
+                            • Каждая с уникальной анимацией и свечением<br><br>
+                            <strong>👑 DEV может выдавать себе рамки и медали</strong><br>
+                            • Кнопка «DEV-панель» появилась в своём профиле
+                        </div>
+                    </div>
+
+                    <!-- v2.5 -->
+                    <div style="background:var(--surface2); padding:16px; border-radius:12px; margin-bottom:14px; border-left:4px solid #a29bfe;">
+                        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                            <strong style="color:#a29bfe; font-size:15px;">v2.5</strong>
+                            <span style="font-size:11px; color:#888;">8 июня 2026</span>
+                        </div>
+                        <div style="font-size:13px; line-height:1.6;">
+                            <strong>🏅 Аниме-медали за уровень</strong><br>
+                            • 🌿 Генин (LVL 1-2) · 💧 Чунин (LVL 3-4)<br>
+                            • ⚡ Джонин (LVL 5-6) · 🩸 АНБУ (LVL 7-9)<br>
+                            • 🏯 Каге (LVL 10-14) · 🌟 Легенда (LVL 15+)<br>
+                            • Медали отображаются в ленте и профиле<br><br>
+                            <strong>👑 DEV-медали (6 штук)</strong><br>
+                            • 🔴 Акацки · 💀 Шинигами · ⚔️ Титан<br>
+                            • 🌀 Сусано'о · ♾️ Бесконечность · 🌟 Создатель<br>
+                            • DEV выдаёт через кнопку «Выдать рамку» → вкладка «Медаль»
+                        </div>
+                    </div>
+
+                    <!-- v2.4 -->
+                    <div style="background:var(--surface2); padding:16px; border-radius:12px; margin-bottom:14px; border-left:4px solid #f9ca24;">
+                        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                            <strong style="color:#f9ca24; font-size:15px;">v2.4</strong>
+                            <span style="font-size:11px; color:#888;">8 июня 2026</span>
+                        </div>
+                        <div style="font-size:13px; line-height:1.6;">
+                            <strong>🖼️ Фикс публикации фото</strong><br>
+                            • Исправлена ошибка «avatar_url column not found» при публикации фото<br>
+                            • SQL миграция: добавлены колонки avatar_url и level в таблицу posts<br><br>
+                            <strong>👑 Новые DEV рамки</strong><br>
+                            • 🌌 Космическая — пульсирующий фиолетово-розовый космос<br>
+                            • 💚 Матрица — зелёное свечение в стиле хакера<br>
+                            • 🔥 Кровь и Огонь — тёмно-красный с огнём<br>
+                            • 💎 Кристалл — переливающийся хрустальный блеск<br>
+                            • Итого 6 эксклюзивных DEV-рамок!
+                        </div>
+                    </div>
+
                     <!-- v2.3 -->
                     <div style="background:var(--surface2); padding:16px; border-radius:12px; margin-bottom:14px; border-left:4px solid var(--blue);">
                         <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
@@ -3719,6 +4720,30 @@ create table if not exists notifications (
         function color(s) { const c = ['#ff6b6b','#4ecdc4','#45b7d1','#f9ca24','#6c5ce7','#a29bfe','#ff9ff3']; let h = 0; for (let i = 0; i < s.length; i++) h = s.charCodeAt(i) + ((h << 5) - h); return c[Math.abs(h) % c.length]; }
 
         const DEVS = ['иван милин', 'shadow'];
+
+        // === Рамки аватара ===
+        const AVATAR_FRAMES = [
+            // Открываются по уровню
+            { id: 'pink',      label: '🌸 Начинашка',    css: 'frame-pink',      minLevel: 1,  devOnly: false },
+            { id: 'tanjiro',   label: '🔥 Танджиро',     css: 'frame-tanjiro',   minLevel: 2,  devOnly: false },
+            { id: 'lightning', label: '⚡ Зенитцу',      css: 'frame-lightning', minLevel: 3,  devOnly: false },
+            { id: 'zoro',      label: '⚔️ Зоро',         css: 'frame-zoro',      minLevel: 5,  devOnly: false },
+            { id: 'dragon',    label: '🐉 Дракон',       css: 'frame-dragon',    minLevel: 7,  devOnly: false },
+            { id: 'kaneki',    label: '👁️ Канеки Кен',   css: 'frame-kaneki',    minLevel: 10, devOnly: false },
+            { id: 'denji',     label: '🪚 Дэнджи',       css: 'frame-denji',     minLevel: 12, devOnly: false },
+            { id: 'gojo',      label: '♾️ Годжо Сатору', css: 'frame-gojo',      minLevel: 15, devOnly: false },
+            // Только DEV могут выдать
+            { id: 'gold',      label: '👑 Золотая',         css: 'frame-gold',      minLevel: 0,  devOnly: true },
+            { id: 'dev',       label: '🌈 DEV Exclusive',   css: 'frame-dev',       minLevel: 0,  devOnly: true },
+            { id: 'cosmic',    label: '🌌 Космическая',     css: 'frame-cosmic',    minLevel: 0,  devOnly: true },
+            { id: 'matrix',    label: '💚 Матрица',         css: 'frame-matrix',    minLevel: 0,  devOnly: true },
+            { id: 'bloodfire', label: '🔥 Кровь и Огонь',  css: 'frame-bloodfire', minLevel: 0,  devOnly: true },
+            { id: 'crystal',   label: '💎 Кристалл',        css: 'frame-crystal',   minLevel: 0,  devOnly: true },
+        ];
+
+        function getFrameDef(frameId) {
+            return AVATAR_FRAMES.find(f => f.id === frameId) || null;
+        }
         function devBadge(login) {
             if (!DEVS.includes((login || '').toLowerCase())) return '';
             return `<span style="
@@ -3737,7 +4762,38 @@ create table if not exists notifications (
                 text-transform: uppercase;
             ">⚙️ DEV</span>`;
         }
-        document.getElementById('authModal').addEventListener('click', function(e) { if (e.target === this) closeAuth(); });
+
+        // === Медали за уровень (аниме-стиль) ===
+        // DEV медали — хранятся в таблице users в поле dev_medal (выдаются девами)
+        const DEV_MEDALS = [
+            { id: 'akatsuki',  label: '🔴 Акацки',        css: 'medal-dev-akatsuki',  desc: 'Член Акацки' },
+            { id: 'shinigami', label: '💀 Шинигами',       css: 'medal-dev-shinigami', desc: 'Бог смерти' },
+            { id: 'titan',     label: '⚔️ Титан',          css: 'medal-dev-titan',     desc: 'Разрушитель миров' },
+            { id: 'susanoo',   label: '🌀 Сусано\'о',      css: 'medal-dev-susanoo',   desc: 'Дух-воин' },
+            { id: 'infinity',  label: '♾️ Бесконечность',  css: 'medal-dev-infinity',  desc: 'Безграничная сила' },
+            { id: 'creator',   label: '🌟 Создатель',      css: 'medal-dev-creator',   desc: 'Создатель Niji' },
+        ];
+
+        function getLevelMedal(level, login, devMedalId) {
+            // Если есть DEV медаль — показываем её вместо обычной
+            if (devMedalId) {
+                const dm = DEV_MEDALS.find(m => m.id === devMedalId);
+                if (dm) return `<span class="medal-badge ${dm.css}" title="${dm.desc}">${dm.label}</span>`;
+            }
+            const lvl = level || 1;
+            if (lvl >= 20) return `<span class="medal-badge medal-god"     title="🔱 Бог — LVL ${lvl}">🔱 Бог</span>`;
+            if (lvl >= 15) return `<span class="medal-badge medal-legend"  title="🌟 Легенда — LVL ${lvl}">🌟 Легенда</span>`;
+            if (lvl >= 12) return `<span class="medal-badge medal-hokage"  title="🌀 Хокаге — LVL ${lvl}">🌀 Хокаге</span>`;
+            if (lvl >= 10) return `<span class="medal-badge medal-kage"    title="🏯 Каге — LVL ${lvl}">🏯 Каге</span>`;
+            if (lvl >= 8)  return `<span class="medal-badge medal-anbu"    title="🩸 АНБУ — LVL ${lvl}">🩸 АНБУ</span>`;
+            if (lvl >= 7)  return `<span class="medal-badge medal-elite"   title="💎 Элита — LVL ${lvl}">💎 Элита</span>`;
+            if (lvl >= 6)  return `<span class="medal-badge medal-master"  title="🔥 Мастер — LVL ${lvl}">🔥 Мастер</span>`;
+            if (lvl >= 5)  return `<span class="medal-badge medal-jonin"   title="⚡ Джонин — LVL ${lvl}">⚡ Джонин</span>`;
+            if (lvl >= 4)  return `<span class="medal-badge medal-spec"    title="🌊 Специалист — LVL ${lvl}">🌊 Спец</span>`;
+            if (lvl >= 3)  return `<span class="medal-badge medal-chunin"  title="💧 Чунин — LVL ${lvl}">💧 Чунин</span>`;
+            if (lvl >= 2)  return `<span class="medal-badge medal-genin"   title="🌿 Генин — LVL ${lvl}">🌿 Генин</span>`;
+            return `<span class="medal-badge medal-newbie" title="⚪ Новичок — LVL ${lvl}">⚪ Новичок</span>`;
+        }('click', function(e) { if (e.target === this) closeAuth(); });
         document.getElementById('chatModal').addEventListener('click', function(e) { if (e.target === this) closeChat(); });
         document.addEventListener('click', function(e) {
             if (!e.target.closest('.user-badge')) document.getElementById('userDropdown')?.classList.remove('show');
@@ -4349,4 +5405,4 @@ create table if not exists notifications (
         init();
     </script>
 </body>
-  </html>
+</html>
