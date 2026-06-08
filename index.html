@@ -136,7 +136,6 @@ alter publication supabase_realtime add table anime_room_chat;
 -->
 <html lang="ru">
 <head>
-    <link rel="stylesheet" href="style.css">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>にじ Niji</title>
@@ -2257,7 +2256,27 @@ for select using (bucket_id = 'post-images');
 
         async function uploadPostImage(file) {
             if (!file) return null;
-            // Сразу возвращаем NO_STORAGE — base64 обрабатывается в createPost
+            try {
+                const safeLogin = currentUser.login
+                    .replace(/\s+/g, '_')
+                    .replace(/[^a-zA-Z0-9_.-]/g, '');
+                const fileName = `${safeLogin}/${Date.now()}.jpg`;
+                // Таймаут 10 секунд чтобы не зависало
+                const uploadPromise = SB.storage.from('post-images').upload(fileName, file, {
+                    cacheControl: '3600', upsert: true, contentType: 'image/jpeg'
+                });
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('timeout')), 10000)
+                );
+                const { data, error } = await Promise.race([uploadPromise, timeoutPromise]);
+                if (!error) {
+                    const { data: urlData } = SB.storage.from('post-images').getPublicUrl(fileName);
+                    return urlData.publicUrl;
+                }
+                console.warn('Supabase Storage:', error.message);
+            } catch(e) {
+                console.warn('Supabase Storage exception:', e.message);
+            }
             return 'NO_STORAGE';
         }
 
@@ -2276,52 +2295,14 @@ for select using (bucket_id = 'post-images');
             let imageUrl = null;
 
             if (photoSrc) {
-                toast('Загружаю фото...');
+                toast('Публикую...');
                 try {
-                    let uploaded = null;
-
-                    if (photoSrc.startsWith('data:')) {
-                        // Фото с устройства (base64) — сжимаем и грузим
-                        const compressed = await compressImage(photoSrc, 1200, 0.85);
-                        const res = await fetch(compressed);
-                        const blob = await res.blob();
-                        const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
-                        uploaded = await uploadPostImage(file);
-                    } else {
-                        // Фото из галереи (внешний URL) — качаем через fetch
-                        try {
-                            const res = await fetch(photoSrc, { mode: 'cors' });
-                            const blob = await res.blob();
-                            const file = new File([blob], `photo_${Date.now()}.jpg`, { type: blob.type || 'image/jpeg' });
-                            uploaded = await uploadPostImage(file);
-                        } catch(corsErr) {
-                            // CORS заблокировал — сохраняем URL напрямую
-                            console.warn('CORS блок, используем URL напрямую:', corsErr.message);
-                            imageUrl = photoSrc;
-                        }
-                    }
-
-                    if (uploaded && uploaded !== 'NO_STORAGE') {
-                        imageUrl = uploaded;
-                    } else if (uploaded === 'NO_STORAGE') {
-                        // Storage не настроен — сохраняем сжатый base64
-                        if (photoSrc.startsWith('data:')) {
-                            // Агрессивное сжатие чтобы влезло в лимит Supabase
-                            let compressed = await compressImage(photoSrc, 600, 0.65);
-                            if (compressed.length > 800000) compressed = await compressImage(photoSrc, 400, 0.5);
-                            if (compressed.length > 800000) compressed = await compressImage(photoSrc, 300, 0.4);
-                            imageUrl = compressed;
-                        } else {
-                            imageUrl = photoSrc;
-                        }
-                        // Показываем инструкцию как исправить
-                        showStorageFixModal();
-                    } else if (!imageUrl) {
-                        return;
-                    }
+                    let compressed = await compressImage(photoSrc, 600, 0.65);
+                    if (compressed.length > 800000) compressed = await compressImage(photoSrc, 400, 0.5);
+                    if (compressed.length > 800000) compressed = await compressImage(photoSrc, 280, 0.4);
+                    imageUrl = compressed;
                 } catch(e) {
-                    console.error('Ошибка фото:', e);
-                    toast('❌ Ошибка при обработке фото: ' + e.message, true);
+                    toast('❌ Ошибка фото: ' + e.message, true);
                     return;
                 }
             }
